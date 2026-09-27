@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pandas as pd
+import numpy as np
 import streamlit as st
 import yaml
 
@@ -51,7 +52,9 @@ with pages[1]:
         for key in ("total_counts", "n_genes_by_counts", "pct_counts_mt"):
             if metrics[key].notna().any():
                 st.subheader(key)
-                st.bar_chart(metrics[key].value_counts(bins=30, sort=False))
+                counts, edges = np.histogram(metrics[key].dropna().to_numpy(dtype=float), bins=30)
+                histogram = pd.DataFrame({"bin_midpoint": (edges[:-1] + edges[1:]) / 2, "cells": counts}).set_index("bin_midpoint")
+                st.bar_chart(histogram)
         st.write("Configured thresholds", config["qc"])
         st.caption("Edit the YAML, then validate again to update the preview.")
         confirmed = st.checkbox("I reviewed the QC preview and confirm these thresholds")
