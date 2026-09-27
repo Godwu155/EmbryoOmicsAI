@@ -1,0 +1,16 @@
+dataset_accession: GSE278981
+sample_id: GSM8559287
+stage: E7.0
+species: mus_musculus
+genome_build: unknown
+source_url: https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM8559287
+raw_count_source: X
+seed: 42
+qc:
+  min_genes: null
+  max_genes: null
+  max_pct_mt: null
+analysis:
+  n_top_genes: 2000
+  n_neighbors: 15
+  leiden_resolution: 0.5
