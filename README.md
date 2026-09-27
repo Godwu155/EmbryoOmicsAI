@@ -43,7 +43,7 @@ embryoomics run --input data/GSM8559287 --config examples/GSM8559287.yaml --out 
 streamlit run app.py
 ```
 
-For a `.h5ad`, set `raw_count_source` to `X`, `raw/X`, or `layers/<name>` in the YAML. The selected matrix must be sparse, finite, nonnegative integer counts. Optional metadata CSV needs exact `cell_id` matches; `sample_id` and `stage` can be supplied by the single-sample config. `embryo_id` and `batch` are never guessed. Optional reviewed annotation CSV can be passed with `--annotations`; use `unknown` when evidence is insufficient. A repeated output path is rejected unless `--overwrite` is explicit.
+For a `.h5ad`, set `raw_count_source` to `X`, `raw/X`, or `layers/<name>` in the YAML. The selected matrix must be sparse, finite, nonnegative integer counts. Optional metadata CSV needs exact `cell_id` matches; `sample_id` and `stage` can be supplied by the single-sample config. `embryo_id` and `batch` are never guessed. Optional reviewed annotation CSV can be passed with `--annotations`; use `unknown` when evidence is insufficient. A repeated output path is rejected unless `--overwrite` is explicit; overwrite is restricted to an existing EmbryoOmics run directory inside the current working directory.
 
 ## Output and review
 

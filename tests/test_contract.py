@@ -99,3 +99,5 @@ def test_end_to_end_preserves_counts(sample, tmp_path, monkeypatch):
     np.testing.assert_array_equal(processed.layers["counts"].toarray(), values)
     with pytest.raises(InputError, match="OUTPUT_EXISTS"):
         run_analysis(config_path, folder, out)
+    with pytest.raises(InputError, match="OVERWRITE_UNSAFE"):
+        run_analysis(config_path, folder, out, overwrite=True)

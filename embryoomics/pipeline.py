@@ -36,6 +36,11 @@ def run_analysis(config_path, input_path, out, metadata_path=None, annotations_p
     out = Path(out)
     if out.exists() and not overwrite:
         raise InputError(f"OUTPUT_EXISTS: {out}; choose another path or --overwrite")
+    if out.exists() and overwrite:
+        resolved = out.resolve()
+        workspace = Path.cwd().resolve()
+        if not out.is_dir() or workspace not in resolved.parents or not (resolved / "run_manifest.json").is_file():
+            raise InputError("OVERWRITE_UNSAFE: only an existing EmbryoOmics run directory inside the current workspace may be overwritten")
     data, files = load_counts(input_path, config, metadata_path)
     n_input = data.n_obs
     n_genes = data.n_vars
@@ -80,6 +85,7 @@ def run_analysis(config_path, input_path, out, metadata_path=None, annotations_p
     if not config.get("genome_build") or config["genome_build"] == "unknown":
         warnings.append("Genome build is unknown; gene ID mapping is not verified.")
     if out.exists() and overwrite:
+        # The absolute target was resolved and checked against the workspace above.
         shutil.rmtree(out)
     out.mkdir(parents=True)
     metrics.to_csv(out / "qc_metrics.csv", index_label="cell_id")
