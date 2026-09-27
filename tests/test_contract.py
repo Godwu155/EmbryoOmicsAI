@@ -94,6 +94,12 @@ def test_end_to_end_preserves_counts(sample, tmp_path, monkeypatch):
     assert all(len(entry["sha256"]) == 64 for entry in manifest["input_files"])
     assert manifest["seed"] == 42 and manifest["ai"]["enabled"] is False
     assert all((out / name).is_file() for name in manifest["files"])
+    report = (out / "report.html").read_text(encoding="utf-8")
+    assert "id='content-en'" in report and "id='content-zh-CN'" in report
+    assert "Language / 语言" in report and "setReportLanguage" in report
+    assert "UMAP shows similarity" in report and "UMAP 显示本次分析中的相似性" in report
+    assert "gene_id" in pd.read_csv(out / "markers.csv").columns
+    assert set(pd.read_csv(out / "annotations.csv").candidate_cell_type) == {"unknown"}
     processed = ad.read_h5ad(out / "processed.h5ad")
     assert sparse.issparse(processed.layers["counts"])
     np.testing.assert_array_equal(processed.layers["counts"].toarray(), values)
@@ -101,3 +107,19 @@ def test_end_to_end_preserves_counts(sample, tmp_path, monkeypatch):
         run_analysis(config_path, folder, out)
     with pytest.raises(InputError, match="OVERWRITE_UNSAFE"):
         run_analysis(config_path, folder, out, overwrite=True)
+    from streamlit.testing.v1 import AppTest
+
+    app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py")).run(timeout=30)
+    app.selectbox[0].set_value("简体中文").run(timeout=30)
+    app.text_input[3].set_value(str(out)).run(timeout=30)
+    assert not app.exception
+
+
+def test_streamlit_language_switch():
+    from streamlit.testing.v1 import AppTest
+
+    app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py")).run(timeout=30)
+    assert [tab.label for tab in app.tabs] == ["Data", "QC", "Results", "Report"]
+    app.selectbox[0].set_value("简体中文").run(timeout=30)
+    assert [tab.label for tab in app.tabs] == ["数据", "质控", "结果", "报告"]
+    assert not app.exception

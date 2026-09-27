@@ -9,6 +9,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
+from .i18n import columns_for, t, warning_for
+
 
 def save_figures(data, out, input_qc_metrics):
     figures = Path(out) / "figures"
@@ -42,16 +44,66 @@ def save_figures(data, out, input_qc_metrics):
 
 def write_report(out, manifest, qc_summary, markers, annotations):
     out = Path(out)
-    sections = [
-        ("data", "Data", f"<p>Dataset: {escape(manifest['dataset_accession'])}; sample: {escape(manifest['sample_id'])}; stage: {escape(manifest['stage'])}; source: <a href='{escape(manifest['source_url'], quote=True)}'>GEO record</a>.</p><p>Input dimensions: {manifest['input_dimensions']['cells']} cells × {manifest['input_dimensions']['genes']} genes. Genome: {escape(manifest['genome_build'])}. Data reuse license: {escape(manifest['data_license'])}.</p>"),
-        ("qc", "QC", qc_summary.to_html(index=False, escape=True) + "<img src='figures/qc.png' alt='QC distributions'>"),
-        ("results", "Results and marker evidence", "<p>UMAP shows similarity in this analysis; it is not a developmental trajectory.</p><img src='figures/umap.png' alt='UMAP by cluster, stage and sample'>" + markers.head(100).to_html(index=False, escape=True)),
-        ("report", "Review and limitations", "<p>Cell type labels require human review. Cluster markers are exploratory and cells are not biological replicates. No lineage, causal, or cross-modality claim is made.</p>" + annotations.to_html(index=False, escape=True)),
-    ]
-    nav = " ".join(f"<a href='#{identifier}'>{title}</a>" for identifier, title, _ in sections)
-    warnings = "".join(f"<li>{escape(w)}</li>" for w in manifest["warnings"])
-    body = "".join(f"<section id='{identifier}'><h2>{title}</h2>{content}</section>" for identifier, title, content in sections)
-    downloads = " ".join(f"<a href='{escape(name, quote=True)}'>{escape(name)}</a>" for name in manifest["files"] if name != "report.html")
-    html = f"""<!doctype html><html lang='en'><meta charset='utf-8'><title>EmbryoOmics AI report</title><style>body{{font:16px system-ui;max-width:1100px;margin:2rem auto;padding:0 1rem;color:#24303b}}nav a{{margin-right:1rem}}section{{margin:3rem 0}}img{{max-width:100%}}table{{border-collapse:collapse;font-size:12px;display:block;overflow:auto}}td,th{{border:1px solid #ddd;padding:4px}}th{{background:#edf1f5}}</style><h1>EmbryoOmics AI v0.1</h1><nav>{nav}</nav><p>Analysis seed: {manifest['seed']}. AI interpretation: disabled.</p><ul>{warnings}</ul>{body}<h2>Downloads</h2>{downloads}</html>"""
+    def table(frame, language):
+        shown = frame.copy()
+        if language == "zh-CN":
+            replacements = {
+                "test_method": {"Scanpy Wilcoxon on log1p normalized expression; cluster vs rest": "Scanpy Wilcoxon 检验：log1p 归一化表达，聚类与其余细胞比较"},
+                "review_status": {"unreviewed": "未审核"},
+                "candidate_cell_type": {"unknown": "未知"},
+            }
+            for column, values in replacements.items():
+                if column in shown:
+                    shown[column] = shown[column].replace(values)
+        return shown.rename(columns=columns_for(language)).to_html(index=False, escape=True)
+
+    def content(language):
+        tr = lambda key: t(language, key)
+        unknown_value = lambda value: tr("unknown") if value == "unknown" else escape(str(value))
+        dimensions = manifest["input_dimensions"]
+        data_text = (
+            f"<p>{tr('dataset')}: {escape(str(manifest['dataset_accession']))}; "
+            f"{tr('sample')}: {escape(str(manifest['sample_id']))}; "
+            f"{tr('stage')}: {escape(str(manifest['stage']))}; "
+            f"{tr('source')}: <a href='{escape(str(manifest['source_url']), quote=True)}'>{tr('geo_record')}</a>.</p>"
+            f"<p>{tr('input_dimensions')}: {dimensions['cells']} {tr('cells')} × {dimensions['genes']} {tr('genes')}. "
+            f"{tr('genome')}: {unknown_value(manifest['genome_build'])}. "
+            f"{tr('license')}: {unknown_value(manifest['data_license'])}.</p>"
+        )
+        qc_text = table(qc_summary, language) + f"<figure><img src='figures/qc.png' alt='{tr('qc_figure')}'><figcaption>{tr('qc_figure')} {tr('qc_axes')}</figcaption></figure>"
+        result_text = (f"<p>{tr('umap_limit')}</p><figure><img src='figures/umap.png' alt='{tr('umap_figure')}'><figcaption>{tr('umap_figure')} {tr('umap_axes')}</figcaption></figure>"
+                       + table(markers.head(100), language))
+        review_text = f"<p>{tr('review_limit')}</p>" + table(annotations, language)
+        sections = [("data", tr("data"), data_text), ("qc", tr("qc"), qc_text),
+                    ("results", tr("report_results"), result_text), ("review", tr("report_review"), review_text)]
+        nav = " ".join(f"<a href='#{language}-{identifier}'>{title}</a>" for identifier, title, _ in sections)
+        warnings = "".join(f"<li>{escape(warning_for(language, warning))}</li>" for warning in manifest["warnings"])
+        body = "".join(f"<section id='{language}-{identifier}'><h2>{title}</h2>{section}</section>" for identifier, title, section in sections)
+        downloads = " ".join(f"<a href='{escape(name, quote=True)}'>{escape(name)}</a>" for name in manifest["files"] if name != "report.html")
+        return (f"<div id='content-{language}' lang='{language}'{' hidden' if language == 'zh-CN' else ''}>"
+                f"<nav>{nav}</nav><p>{tr('seed')}: {manifest['seed']}. {tr('ai_status')}</p>"
+                f"<ul>{warnings}</ul>{body}<h2>{tr('downloads')}</h2>{downloads}</div>")
+
+    html = ("<!doctype html><html lang='en'><meta charset='utf-8'><title>EmbryoOmics AI report / 报告</title>"
+            "<style>body{font:16px system-ui;max-width:1100px;margin:2rem auto;padding:0 1rem;color:#24303b}"
+            "nav a{margin-right:1rem}section{margin:3rem 0}img{max-width:100%}"
+            "table{border-collapse:collapse;font-size:12px;display:block;overflow:auto}"
+            "td,th{border:1px solid #ddd;padding:4px}th{background:#edf1f5}[hidden]{display:none!important}</style>"
+            "<h1>EmbryoOmics AI v0.1</h1><label for='report-language'>Language / 语言</label> "
+            "<select id='report-language' onchange='setReportLanguage(this.value)'>"
+            "<option value='en'>English</option><option value='zh-CN'>简体中文</option></select>"
+            + content("en") + content("zh-CN")
+            + """<script>
+function setReportLanguage(language) {
+  if (language !== 'en' && language !== 'zh-CN') language = 'en';
+  document.getElementById('content-en').hidden = language !== 'en';
+  document.getElementById('content-zh-CN').hidden = language !== 'zh-CN';
+  document.getElementById('report-language').value = language;
+  document.documentElement.lang = language;
+  try { localStorage.setItem('embryoomics-report-language', language); } catch (_) {}
+}
+try { setReportLanguage(localStorage.getItem('embryoomics-report-language') || 'en'); }
+catch (_) { setReportLanguage('en'); }
+</script></html>""")
     (out / "report.html").write_text(html, encoding="utf-8")
     (out / "run_manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
