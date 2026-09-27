@@ -4,6 +4,7 @@ stage: E7.0
 species: mus_musculus
 genome_build: unknown
 source_url: https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM8559287
+data_license: unknown
 raw_count_source: X
 seed: 42
 qc:

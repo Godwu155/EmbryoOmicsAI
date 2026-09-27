@@ -19,6 +19,7 @@ def load_config(path):
         raise InputError(f"CONFIG: missing required fields: {', '.join(missing)}")
     if config["species"] != "mus_musculus":
         raise InputError("SPECIES: v0.1 requires species: mus_musculus")
+    config.setdefault("data_license", "unknown")
     if not isinstance(config["seed"], int) or isinstance(config["seed"], bool):
         raise InputError("CONFIG: seed must be an integer")
     if config["raw_count_source"] != "X" and not str(config["raw_count_source"]).startswith("layers/") and config["raw_count_source"] != "raw/X":

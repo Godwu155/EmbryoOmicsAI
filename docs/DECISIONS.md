@@ -25,3 +25,5 @@ No LLM provider, citation retrieval, or calibration protocol is specified. v0.1 
 ## 2026-09-27: downloaded sample validation
 
 The user supplied all three GSM8559287 files. Their measured sizes are 51,872, 290,896, and 101,563,067 bytes for barcodes, features, and matrix respectively. The importer verified a 10,232-cell × 32,285-gene nonnegative integer sparse count matrix, 13 `^mt-` symbols, and unique IDs. No QC thresholds were guessed: the example retains all 10,232 cells and records null thresholds. The successful Scanpy run produced nine unreviewed clusters and all specified report artifacts. Its three SHA256 values are retained in the local run manifest, while the large data and output files are ignored by Git. The original file naming mismatch is resolved in code, without renaming or fabricating metadata.
+
+The inspected GEO sample record does not supply a verified redistribution license. The example config and report therefore state `data_license: unknown` instead of inferring reuse terms from public download availability.

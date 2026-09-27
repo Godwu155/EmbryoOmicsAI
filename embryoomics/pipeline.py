@@ -95,6 +95,7 @@ def run_analysis(config_path, input_path, out, metadata_path=None, annotations_p
     peak_memory = getattr(memory, "peak_wset", None)
     manifest = {"dataset_accession": config["dataset_accession"], "sample_id": config["sample_id"], "stage": config["stage"],
                 "species": config["species"], "genome_build": config["genome_build"], "source_url": config["source_url"],
+                "data_license": config["data_license"],
                 "raw_count_source": config["raw_count_source"], "input_files": checksums(files),
                 "input_dimensions": {"cells": n_input, "genes": n_genes}, "qc": {"input_cells": n_input, "retained_cells": data.n_obs, "mt_detection": mt, "preview_by_sample": qc_summary.to_dict(orient="records")},
                 "parameters": config, "seed": config["seed"], "versions": {"python": platform.python_version(), **versions},

@@ -18,7 +18,7 @@ If Python 3.11 is unavailable, use `py -3.12 -m venv .venv`. Pinned direct depen
 
 ## Get the verified GEO sample
 
-The [GSM8559287 GEO record](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM8559287) describes an E7.0 mouse embryo sample from [GSE278981](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE278981). Download these three supplementary files into `data/GSM8559287/`, keeping the filenames unchanged:
+The [GSM8559287 GEO record](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM8559287) describes an E7.0 mouse embryo sample from [GSE278981](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE278981). The inspected record did not establish a specific reuse license, so the example records `data_license: unknown`; verify terms before redistribution. Download these three supplementary files into `data/GSM8559287/`, keeping the filenames unchanged:
 
 1. [barcodes TSV](https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM8559nnn/GSM8559287/suppl/GSM8559287_cellranger_Pmem-E7-0_outs_filtered_feature_bc_matrix_barcodes.tsv.gz)
 2. [features TSV](https://ftp.ncbi.nlm.nih.gov/geo/samples/GSM8559nnn/GSM8559287/suppl/GSM8559287_cellranger_Pmem-E7-0_outs_filtered_feature_bc_matrix_features.tsv.gz)
@@ -75,4 +75,4 @@ Synthetic test output is for software verification only. A real GSM8559287 resul
 
 ### Verified local example (2026-09-27)
 
-The three GEO files above passed validation as a 10,232-cell × 32,285-gene sparse integer matrix; 13 mitochondrial symbols matched the documented rule. With the example's deliberately unset QC thresholds, 10,232 cells were retained. The end-to-end run produced nine **unreviewed clusters**, not nine confirmed cell types. Its manifest records 53.58 seconds of analysis time, a 1,888,288,768-byte peak Windows working set (about 1.76 GiB), and SHA256 checksums for all three inputs. These figures describe this local machine and these exact files; they are not biological conclusions. The output is in `results/GSM8559287_001/` locally and remains Git-ignored.
+The three GEO files above passed validation as a 10,232-cell × 32,285-gene sparse integer matrix; 13 mitochondrial symbols matched the documented rule. With the example's deliberately unset QC thresholds, 10,232 cells were retained. The end-to-end run produced nine **unreviewed clusters**, not nine confirmed cell types. Its manifest records 56.44 seconds of analysis time, a 1,888,174,080-byte peak Windows working set (about 1.76 GiB), and SHA256 checksums for all three inputs. These figures describe this local machine and these exact files; they are not biological conclusions. The output is in `results/GSM8559287_001/` locally and remains Git-ignored.

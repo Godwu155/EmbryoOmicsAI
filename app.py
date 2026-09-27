@@ -29,7 +29,7 @@ except (InputError, FileNotFoundError, yaml.YAMLError) as exc:
     st.stop()
 
 with pages[0]:
-    st.write({key: config[key] for key in ("dataset_accession", "sample_id", "stage", "species", "genome_build", "source_url", "raw_count_source")})
+    st.write({key: config[key] for key in ("dataset_accession", "sample_id", "stage", "species", "genome_build", "source_url", "data_license", "raw_count_source")})
     if st.button("Validate input"):
         try:
             st.session_state["inspection"] = inspect_input(input_path, config_path, metadata_path or None)

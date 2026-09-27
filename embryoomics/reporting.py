@@ -43,7 +43,7 @@ def save_figures(data, out, input_qc_metrics):
 def write_report(out, manifest, qc_summary, markers, annotations):
     out = Path(out)
     sections = [
-        ("data", "Data", f"<p>Dataset: {escape(manifest['dataset_accession'])}; sample: {escape(manifest['sample_id'])}; stage: {escape(manifest['stage'])}; source: <a href='{escape(manifest['source_url'], quote=True)}'>GEO record</a>.</p><p>Input dimensions: {manifest['input_dimensions']['cells']} cells × {manifest['input_dimensions']['genes']} genes. Genome: {escape(manifest['genome_build'])}.</p>"),
+        ("data", "Data", f"<p>Dataset: {escape(manifest['dataset_accession'])}; sample: {escape(manifest['sample_id'])}; stage: {escape(manifest['stage'])}; source: <a href='{escape(manifest['source_url'], quote=True)}'>GEO record</a>.</p><p>Input dimensions: {manifest['input_dimensions']['cells']} cells × {manifest['input_dimensions']['genes']} genes. Genome: {escape(manifest['genome_build'])}. Data reuse license: {escape(manifest['data_license'])}.</p>"),
         ("qc", "QC", qc_summary.to_html(index=False, escape=True) + "<img src='figures/qc.png' alt='QC distributions'>"),
         ("results", "Results and marker evidence", "<p>UMAP shows similarity in this analysis; it is not a developmental trajectory.</p><img src='figures/umap.png' alt='UMAP by cluster, stage and sample'>" + markers.head(100).to_html(index=False, escape=True)),
         ("report", "Review and limitations", "<p>Cell type labels require human review. Cluster markers are exploratory and cells are not biological replicates. No lineage, causal, or cross-modality claim is made.</p>" + annotations.to_html(index=False, escape=True)),
