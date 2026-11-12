@@ -7,11 +7,12 @@ import numpy as np
 import streamlit as st
 import yaml
 
-from embryoomics.config import InputError, load_config
+from embryoomics.config import InputError, load_config, validate_config
 from embryoomics.i18n import LANGUAGES, columns_for, t, warning_for
 from embryoomics.pipeline import inspect_input, run_analysis
 from embryoomics.io import review_identity
 from embryoomics.review import annotation_version, save_annotation_review, REVIEW_STATUSES
+from embryoomics.qc import preview_qc_metrics
 
 
 st.set_page_config(page_title="EmbryoOmics AI v0.1", layout="wide")
@@ -47,7 +48,7 @@ with pages[0]:
                                 t(language, "value"): t(language, "unknown") if config[key] == "unknown" else config[key]} for key in fields]), hide_index=True)
     if st.button(t(language, "validate"), key="validate"):
         try:
-            st.session_state["inspection"] = inspect_input(input_path, config_path, metadata_path or None)
+            st.session_state["inspection"] = inspect_input(input_path, config_path, metadata_path or None, apply_config_filters=False)
             st.session_state["inspected_paths"] = (input_path, config_path, metadata_path)
             st.session_state['review_identity'] = current_identity
             st.session_state['qc_confirm'] = False
@@ -66,23 +67,78 @@ with pages[1]:
     st.write(t(language, "qc_intro"))
     if "inspection" in st.session_state and st.session_state.get("inspected_paths") == (input_path, config_path, metadata_path):
         info = st.session_state["inspection"]
-        st.dataframe(info["preview"].rename(columns=labels), hide_index=True)
         metrics = info["qc_metrics"]
+        if st.session_state.get('qc_controls_identity') != current_identity:
+            for rule in ('min_genes', 'max_genes', 'max_pct_mt'):
+                st.session_state.pop(f'qc_enable_{rule}', None)
+                st.session_state.pop(f'qc_value_{rule}', None)
+            st.session_state['qc_controls_identity'] = current_identity
+        thresholds = {}
+        mt_available = np.isfinite(metrics.pct_counts_mt.to_numpy()).any()
+        for rule in ('min_genes', 'max_genes', 'max_pct_mt'):
+            available = rule != 'max_pct_mt' or mt_available
+            enabled = st.checkbox(f"{t(language, 'qc_enable')} {t(language, 'qc_' + rule)}",
+                                  value=config['qc'][rule] is not None and available,
+                                  disabled=not available, key=f'qc_enable_{rule}')
+            is_percentage = rule == 'max_pct_mt'
+            initial_value = config['qc'][rule]
+            if is_percentage and initial_value is not None:
+                initial_value = float(initial_value)
+            value = st.number_input(t(language, 'qc_' + rule),
+                                    min_value=0.0 if is_percentage else 0,
+                                    max_value=100.0 if is_percentage else None,
+                                    value=initial_value, step=0.5 if is_percentage else 1,
+                                    disabled=not enabled or not available,
+                                    placeholder=t(language, 'qc_enter_value'), key=f'qc_value_{rule}')
+            thresholds[rule] = value if enabled and available else None
+        if not mt_available:
+            st.info(t(language, 'qc_mt_unavailable'))
+        preview_identity = (current_identity, tuple(thresholds.items()))
+        if preview_identity != st.session_state.get('qc_preview_identity'):
+            st.session_state['qc_confirm'] = False
+        st.session_state['qc_preview_identity'] = preview_identity
+        can_run = False
+        try:
+            for rule in thresholds:
+                if st.session_state.get(f'qc_enable_{rule}') and thresholds[rule] is None:
+                    raise InputError(t(language, 'qc_value_required'))
+            effective_config = validate_config({**config, 'qc': thresholds})
+            mask, summary, reasons = preview_qc_metrics(metrics, effective_config['qc'])
+            st.session_state['qc_current_preview'] = {'thresholds': thresholds.copy(), 'retained': int(mask.sum())}
+            cards = st.columns(3)
+            for card, label, count in zip(cards, ('input_cells', 'retained_cells', 'removed_cells'),
+                                          (len(metrics), int(mask.sum()), int((~mask).sum()))):
+                card.metric(t(language, 'qc_' + label), count)
+            st.dataframe(summary.rename(columns=labels), hide_index=True)
+            shown_reasons = reasons.copy()
+            shown_reasons['filter_rule'] = shown_reasons.filter_rule.map(lambda rule: t(language, 'qc_' + rule))
+            st.dataframe(shown_reasons.rename(columns=labels), hide_index=True)
+            st.caption(t(language, 'qc_reasons_help'))
+            st.download_button(t(language, 'qc_download_config'), yaml.safe_dump(effective_config, sort_keys=False, allow_unicode=True),
+                               'run_config.yaml', 'text/yaml', key='qc_config_download')
+            if mask.sum() < 4:
+                st.error(t(language, 'qc_too_few'))
+            elif (metrics.loc[mask, 'total_counts'] == 0).any():
+                st.error(t(language, 'qc_empty_cells'))
+            else:
+                can_run = True
+        except InputError as exc:
+            st.session_state.pop('qc_current_preview', None)
+            st.error(str(exc))
+        if not can_run:
+            st.session_state['qc_confirm'] = False
         for key in ("total_counts", "n_genes_by_counts", "pct_counts_mt"):
             if metrics[key].notna().any():
                 st.subheader(labels.get(key, key))
                 counts, edges = np.histogram(metrics[key].dropna().to_numpy(dtype=float), bins=30)
                 histogram = pd.DataFrame({"bin_midpoint": (edges[:-1] + edges[1:]) / 2, t(language, "chart_count"): counts}).set_index("bin_midpoint")
                 st.bar_chart(histogram)
-        st.write(t(language, "qc_thresholds"))
-        st.dataframe(pd.DataFrame([{t(language, "field"): labels.get(key, key),
-                                    t(language, "value"): value if value is not None else t(language, "unset")}
-                                   for key, value in config["qc"].items()]), hide_index=True)
         st.caption(t(language, "qc_edit"))
-        confirmed = st.checkbox(t(language, "qc_confirm"), key="qc_confirm")
-        if st.button(t(language, "run"), disabled=not confirmed, key="run"):
+        confirmed = st.checkbox(t(language, "qc_confirm"), disabled=not can_run, key="qc_confirm")
+        if st.button(t(language, "run"), disabled=not confirmed or not can_run, key="run"):
             try:
-                result = run_analysis(config_path, input_path, out_path, metadata_path or None)
+                result = run_analysis(config_path, input_path, out_path, metadata_path or None,
+                                      qc_override=thresholds, expected_input_identity=info['input_identity'])
                 st.session_state["result"] = result
                 st.success(f"{t(language, 'completed')}: {result['output']}")
             except (InputError, FileNotFoundError, ValueError) as exc:

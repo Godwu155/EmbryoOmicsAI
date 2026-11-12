@@ -58,6 +58,8 @@ analysis:
 
 1. **validate**：格式、ID 唯一性、计数整数性、维度、元数据匹配、非空样本；返回错误代码和说明。
 2. **QC**：计算总计数和检测基因数；按小鼠基因符号或可核实的 gene ID 映射识别线粒体基因，记录识别方法和数量。展示按样本分布，产出过滤预览；用户提交阈值后过滤，不暗中使用固定值。
+
+   界面允许逐项启停和输入阈值，基于已验证的逐细胞指标实时计算预览；规则总失败数与按顺序新增去除数分别记录。调整参数撤销旧确认；运行校验输入与源配置身份，使用已确认的界面阈值，保存独立配置快照与 `qc_filter_reasons.csv`，保留源 YAML。
 3. **RNA**：在 `layers['counts']` 保留稀疏原始计数；对工作对象 normalize_total、log1p，记录具体 HVG 方法与参数，再 PCA、neighbors、Leiden、UMAP；必要时对 HVG 子集建模但保留完整基因 marker 分析视图。
 4. **证据**：每 cluster 输出 marker 统计（基因 ID、符号、组内比例、参考组比例、效应量和检验方法）；同时输出阶段、样本、胚胎组成，不因一张 UMAP 自动生成谱系结论。
 5. **报告**：HTML 页面包含数据清单、QC、分析流程、图、候选注释、局限性。除图像外输出 `run_manifest.json`、`qc_metrics.csv`、`markers.csv`、`annotations.csv`、`processed.h5ad`。

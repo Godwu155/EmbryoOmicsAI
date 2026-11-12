@@ -1,5 +1,9 @@
 # Development decisions (v0.1)
 
+## 2026-11-13: interactive QC configuration
+
+The QC page computes threshold previews from validated per-cell metrics, with explicit switches for null/disabled rules. UI-selected thresholds are passed as a validated QC override to the shared service; CLI YAML behavior is retained. The source YAML is preserved, while the run snapshot and manifest record effective values. Filtering uses the same metric-based function in preview and execution, exports overlapping and sequential removal counts, and invalidates confirmation after parameter changes. A stale input/source configuration is rejected before analysis. The real GSM8559287 UI acceptance run retained 8,813 cells in both preview and execution.
+
 ## 2026-11-12: direct annotation editing
 
 The Results page now saves candidate annotation edits directly into the selected run. Saving regenerates the HTML report and offline ZIP, with timestamped before/after snapshots under `annotation_history/`. Cluster IDs are read-only; the computational clustering, marker table, expression matrix and embedding are preserved. Stale pages must reload when another page has saved changes. Artifacts are prepared before commit, and ordinary replacement failures restore prior files. The CSV download/import path remains available for exchanging annotations between runs.

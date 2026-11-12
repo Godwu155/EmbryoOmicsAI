@@ -14,26 +14,37 @@ import scanpy as sc
 import yaml
 
 from .ai import ai_status
-from .config import InputError, load_config
+from .config import InputError, load_config, validate_config
 from .evidence import load_annotations, marker_table
-from .io import checksums, load_counts
-from .qc import calculate_qc, preview_qc
+from .io import checksums, load_counts, review_identity
+from .qc import calculate_qc, preview_qc_metrics
 from .reporting import save_figures, write_report
 
 
-def inspect_input(input_path, config_path, metadata_path=None):
+def inspect_input(input_path, config_path, metadata_path=None, *, apply_config_filters=True):
     config = load_config(config_path)
+    identity = review_identity(input_path, config, metadata_path)
     data, files = load_counts(input_path, config, metadata_path)
     mt, warnings = calculate_qc(data)
-    mask, summary = preview_qc(data, config["qc"])
+    thresholds = config['qc'] if apply_config_filters else {'min_genes': None, 'max_genes': None, 'max_pct_mt': None}
+    mask, summary, reasons = preview_qc_metrics(data.obs, thresholds)
+    if identity != review_identity(input_path, load_config(config_path), metadata_path):
+        raise InputError('INPUT_CHANGED: input or configuration changed during validation; validate again')
     return {"config": config, "cells": data.n_obs, "genes": data.n_vars, "mt": mt,
             "warnings": warnings, "qc_metrics": data.obs[["sample_id", "stage", "total_counts", "n_genes_by_counts", "pct_counts_mt"]].copy(),
-            "preview": summary, "retained": int(mask.sum()), "files": [str(p) for p in files]}
+            "preview": summary, "filter_reasons": reasons, "input_identity": identity,
+            "retained": int(mask.sum()), "files": [str(p) for p in files]}
 
 
-def run_analysis(config_path, input_path, out, metadata_path=None, annotations_path=None, overwrite=False):
+def run_analysis(config_path, input_path, out, metadata_path=None, annotations_path=None, overwrite=False,
+                 *, qc_override=None, expected_input_identity=None):
     start = time.perf_counter()
     config = load_config(config_path)
+    identity = review_identity(input_path, config, metadata_path)
+    if expected_input_identity is not None and identity != expected_input_identity:
+        raise InputError('QC_STALE: input or configuration changed; validate and review QC again')
+    if qc_override is not None:
+        config = validate_config({**config, 'qc': qc_override})
     out = Path(out)
     if out.exists() and not overwrite:
         raise InputError(f"OUTPUT_EXISTS: {out}; choose another path or --overwrite")
@@ -43,11 +54,16 @@ def run_analysis(config_path, input_path, out, metadata_path=None, annotations_p
         if not out.is_dir() or workspace not in resolved.parents or not (resolved / "run_manifest.json").is_file():
             raise InputError("OVERWRITE_UNSAFE: only an existing EmbryoOmics run directory inside the current workspace may be overwritten")
     data, files = load_counts(input_path, config, metadata_path)
+    if identity != review_identity(input_path, load_config(config_path), metadata_path):
+        raise InputError('QC_STALE: input or configuration changed while loading; validate again')
+    input_checksums = checksums(files)
+    if identity != review_identity(input_path, load_config(config_path), metadata_path):
+        raise InputError('QC_STALE: input or configuration changed during checksum calculation; validate again')
     n_input = data.n_obs
     n_genes = data.n_vars
     mt, warnings = calculate_qc(data)
     metrics = data.obs[["sample_id", "stage", "total_counts", "n_genes_by_counts", "pct_counts_mt"]].copy()
-    mask, qc_summary = preview_qc(data, config["qc"])
+    mask, qc_summary, filter_reasons = preview_qc_metrics(data.obs, config["qc"])
     if mask.sum() < 4:
         raise InputError(f"TOO_FEW_CELLS: {int(mask.sum())} cells remain; at least 4 are required for PCA/neighbors")
     data = data[mask].copy()
@@ -91,6 +107,7 @@ def run_analysis(config_path, input_path, out, metadata_path=None, annotations_p
     out.mkdir(parents=True)
     metrics.to_csv(out / "qc_metrics.csv", index_label="cell_id")
     qc_summary.to_csv(out / "qc_preview.csv", index=False)
+    filter_reasons.to_csv(out / 'qc_filter_reasons.csv', index=False)
     markers.to_csv(out / "markers.csv", index=False)
     annotations.to_csv(out / "annotations.csv", index=False)
     composition.to_csv(out / "cluster_composition.csv", index=False)
@@ -103,12 +120,13 @@ def run_analysis(config_path, input_path, out, metadata_path=None, annotations_p
     manifest = {"dataset_accession": config["dataset_accession"], "sample_id": config["sample_id"], "stage": config["stage"],
                 "species": config["species"], "genome_build": config["genome_build"], "source_url": config["source_url"],
                 "data_license": config["data_license"],
-                "raw_count_source": config["raw_count_source"], "input_files": checksums(files),
-                "input_dimensions": {"cells": n_input, "genes": n_genes}, "qc": {"input_cells": n_input, "retained_cells": data.n_obs, "mt_detection": mt, "preview_by_sample": qc_summary.to_dict(orient="records")},
+                "raw_count_source": config["raw_count_source"], "input_files": input_checksums,
+                "input_dimensions": {"cells": n_input, "genes": n_genes}, "qc": {"input_cells": n_input, "retained_cells": data.n_obs, "mt_detection": mt, "preview_by_sample": qc_summary.to_dict(orient="records"),
+                    "filter_reasons": filter_reasons.astype(object).where(pd.notna(filter_reasons), None).to_dict(orient='records')},
                 "parameters": config, "seed": config["seed"], "versions": {"python": platform.python_version(), **versions},
                 "warnings": warnings, "ai": ai_status(), "elapsed_seconds": round(time.perf_counter() - start, 2),
                 "peak_working_set_bytes": peak_memory,
-                "files": ["report.html", "run_manifest.json", "qc_metrics.csv", "qc_preview.csv", "markers.csv", "annotations.csv", "cluster_composition.csv", "processed.h5ad", "config.yaml", "figures/qc.png", "figures/umap.png"]}
+                "files": ["report.html", "run_manifest.json", "qc_metrics.csv", "qc_preview.csv", "qc_filter_reasons.csv", "markers.csv", "annotations.csv", "cluster_composition.csv", "processed.h5ad", "config.yaml", "figures/qc.png", "figures/umap.png"]}
     write_report(out, manifest, qc_summary, markers, annotations)
     # Keep relative image and download links usable after downloading the report.
     with zipfile.ZipFile(out / 'report_bundle.zip', 'w', compression=zipfile.ZIP_DEFLATED) as bundle:

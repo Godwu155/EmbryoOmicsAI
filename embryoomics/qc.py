@@ -26,18 +26,34 @@ def calculate_qc(data):
 
 
 def preview_qc(data, thresholds):
-    mask = np.ones(data.n_obs, dtype=bool)
-    genes = data.obs["n_genes_by_counts"].to_numpy()
-    if thresholds["min_genes"] is not None:
-        mask &= genes >= thresholds["min_genes"]
-    if thresholds["max_genes"] is not None:
-        mask &= genes <= thresholds["max_genes"]
-    if thresholds["max_pct_mt"] is not None:
-        values = data.obs["pct_counts_mt"].to_numpy()
-        if not np.isfinite(values).any():
-            raise InputError("MT_UNAVAILABLE: no mitochondrial genes matched; set qc.max_pct_mt: null")
-        mask &= np.isfinite(values) & (values <= thresholds["max_pct_mt"])
-    preview = pd.DataFrame({"sample_id": data.obs["sample_id"].astype(str), "retained": mask})
+    mask, summary, _ = preview_qc_metrics(data.obs, thresholds)
+    return mask, summary
+
+
+def preview_qc_metrics(metrics, thresholds):
+    """Preview the exact filtering rules from cached metrics, without loading counts."""
+    mask = np.ones(len(metrics), dtype=bool)
+    genes = metrics['n_genes_by_counts'].to_numpy()
+    mt = metrics['pct_counts_mt'].to_numpy()
+    reasons = []
+    for key in ('min_genes', 'max_genes', 'max_pct_mt'):
+        threshold = thresholds[key]
+        passed = np.ones(len(metrics), dtype=bool)
+        if threshold is not None:
+            if key == 'min_genes':
+                passed = genes >= threshold
+            elif key == 'max_genes':
+                passed = genes <= threshold
+            else:
+                if not np.isfinite(mt).any():
+                    raise InputError('MT_UNAVAILABLE: no mitochondrial genes matched; set qc.max_pct_mt: null')
+                passed = np.isfinite(mt) & (mt <= threshold)
+        newly_removed = int((mask & ~passed).sum())
+        mask &= passed
+        reasons.append({'filter_rule': key, 'threshold': threshold, 'enabled': threshold is not None,
+                        'failed_cells': int((~passed).sum()), 'newly_removed_cells': newly_removed,
+                        'retained_after_rule': int(mask.sum())})
+    preview = pd.DataFrame({"sample_id": metrics["sample_id"].astype(str), "retained": mask})
     summary = preview.groupby("sample_id", sort=True).agg(input_cells=("retained", "size"), retained_cells=("retained", "sum")).reset_index()
     summary["removed_cells"] = summary["input_cells"] - summary["retained_cells"]
-    return mask, summary
+    return mask, summary, pd.DataFrame(reasons)

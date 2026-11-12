@@ -8,6 +8,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 
 from .i18n import columns_for, t, warning_for
 
@@ -46,6 +47,8 @@ def write_report(out, manifest, qc_summary, markers, annotations):
     out = Path(out)
     def table(frame, language):
         shown = frame.copy()
+        if 'filter_rule' in shown:
+            shown['filter_rule'] = shown.filter_rule.map(lambda rule: t(language, 'qc_' + rule))
         if language == "zh-CN":
             replacements = {
                 "test_method": {"Scanpy Wilcoxon on log1p normalized expression; cluster vs rest": "Scanpy Wilcoxon 检验：log1p 归一化表达，聚类与其余细胞比较"},
@@ -71,6 +74,9 @@ def write_report(out, manifest, qc_summary, markers, annotations):
             f"{tr('license')}: {unknown_value(manifest['data_license'])}.</p>"
         )
         qc_text = table(qc_summary, language) + f"<figure><img src='figures/qc.png' alt='{tr('qc_figure')}'><figcaption>{tr('qc_figure')} {tr('qc_axes')}</figcaption></figure>"
+        if manifest.get('qc', {}).get('filter_reasons'):
+            qc_text += table(pd.DataFrame(manifest['qc']['filter_reasons']), language)
+            qc_text += f"<p>{tr('qc_reasons_help')}</p>"
         result_text = (f"<p>{tr('umap_limit')}</p><figure><img src='figures/umap.png' alt='{tr('umap_figure')}'><figcaption>{tr('umap_figure')} {tr('umap_axes')}</figcaption></figure>"
                        + table(markers.head(100), language))
         review_text = f"<p>{tr('review_limit')}</p>" + table(annotations, language)

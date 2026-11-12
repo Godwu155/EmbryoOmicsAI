@@ -1,6 +1,7 @@
 """Configuration contract shared by CLI and Streamlit."""
 
 from pathlib import Path
+from copy import deepcopy
 import math
 import yaml
 
@@ -12,6 +13,11 @@ class InputError(ValueError):
 def load_config(path):
     with Path(path).open(encoding="utf-8") as handle:
         config = yaml.safe_load(handle)
+    return validate_config(config)
+
+
+def validate_config(config):
+    config = deepcopy(config)
     if not isinstance(config, dict):
         raise InputError("CONFIG: config.yaml must be a mapping")
     required = ["dataset_accession", "sample_id", "stage", "species", "genome_build", "source_url", "raw_count_source", "seed"]

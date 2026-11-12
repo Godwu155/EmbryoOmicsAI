@@ -208,3 +208,88 @@ def test_direct_annotation_save_in_interface(sample, tmp_path):
     assert not fresh.exception
     assert not fresh.button(key='annotations_save').disabled
     assert fresh.dataframe[-1].value.iloc[0].reviewer_note == 'saved from another page'
+
+
+def test_qc_interface_preview_matches_run_and_preserves_source_config(sample, tmp_path):
+    from streamlit.testing.v1 import AppTest
+    folder, config_path, _, values = sample
+    original_config = config_path.read_bytes()
+    out = tmp_path / 'ui_qc_run'
+    app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'app.py')).run(timeout=30)
+    app.text_input(key='input_path').set_value(str(folder))
+    app.text_input(key='config_path').set_value(str(config_path))
+    app.text_input(key='out_path').set_value(str(out)).run(timeout=30)
+    app.button(key='validate').click().run(timeout=30)
+    app.checkbox(key='qc_confirm').check().run(timeout=30)
+    app.number_input(key='qc_value_min_genes').set_value(20).run(timeout=30)
+    assert not app.checkbox(key='qc_confirm').value
+    assert app.button(key='run').disabled
+    app.checkbox(key='qc_enable_max_pct_mt').check().run(timeout=30)
+    assert app.checkbox(key='qc_confirm').disabled  # enabled filter still needs a number
+    app.number_input(key='qc_value_max_pct_mt').set_value(20.0).run(timeout=30)
+    expected = int((((values > 0).sum(axis=1) >= 20) & (values[:, 0] / values.sum(axis=1) <= .2)).sum())
+    assert expected >= 4
+    assert app.session_state['qc_current_preview']['retained'] == expected
+    app.selectbox(key='language').set_value('简体中文').run(timeout=30)
+    assert app.number_input(key='qc_value_min_genes').value == 20
+    assert app.session_state['qc_current_preview']['retained'] == expected
+    app.checkbox(key='qc_confirm').check().run(timeout=30)
+    app.button(key='run').click().run(timeout=30)
+    assert not app.exception
+    assert config_path.read_bytes() == original_config
+    manifest = json.loads((out / 'run_manifest.json').read_text(encoding='utf-8'),
+                          parse_constant=lambda text: pytest.fail(f'Nonstandard JSON value {text}'))
+    assert manifest['qc']['retained_cells'] == expected
+    assert manifest['parameters']['qc'] == {'min_genes': 20, 'max_genes': None, 'max_pct_mt': 20.0}
+    assert yaml.safe_load((out / 'config.yaml').read_text())['qc'] == manifest['parameters']['qc']
+    assert pd.read_csv(out / 'qc_filter_reasons.csv').newly_removed_cells.sum() == 30 - expected
+    processed = ad.read_h5ad(out / 'processed.h5ad')
+    assert processed.n_obs == expected
+
+
+def test_qc_interface_rejects_invalid_range_and_empty_result(sample):
+    from streamlit.testing.v1 import AppTest
+    folder, config_path, _, _ = sample
+    app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'app.py')).run(timeout=30)
+    app.text_input(key='input_path').set_value(str(folder))
+    app.text_input(key='config_path').set_value(str(config_path)).run(timeout=30)
+    app.button(key='validate').click().run(timeout=30)
+    app.number_input(key='qc_value_min_genes').set_value(99999).run(timeout=30)
+    assert not app.exception
+    assert app.button(key='run').disabled
+    assert app.session_state['qc_current_preview']['retained'] == 0
+    app.checkbox(key='qc_enable_max_genes').check().run(timeout=30)
+    app.number_input(key='qc_value_max_genes').set_value(10).run(timeout=30)
+    assert app.button(key='run').disabled
+    assert any('min_genes exceeds' in item.value for item in app.error)
+    app.checkbox(key='qc_enable_min_genes').uncheck().run(timeout=30)
+    assert app.session_state['qc_current_preview']['thresholds']['min_genes'] is None
+
+
+def test_stale_qc_preview_rejected_before_run(sample, tmp_path):
+    folder, config_path, config, _ = sample
+    info = inspect_input(folder, config_path)
+    config['seed'] = 43
+    config_path.write_text(yaml.safe_dump(config), encoding='utf-8')
+    out = tmp_path / 'stale_run'
+    with pytest.raises(InputError, match='QC_STALE'):
+        run_analysis(config_path, folder, out, qc_override=info['config']['qc'], expected_input_identity=info['input_identity'])
+    assert not out.exists()
+
+
+def test_missing_mitochondrial_symbols_disable_ui_filter(sample):
+    from streamlit.testing.v1 import AppTest
+    folder, config_path, config, _ = sample
+    feature_file = folder / 'GSMtest_features.tsv'
+    feature_file.write_text(feature_file.read_text(encoding='utf-8').replace('mt-Nd1', 'Gene0'), encoding='utf-8')
+    config['qc']['max_pct_mt'] = 10
+    config_path.write_text(yaml.safe_dump(config), encoding='utf-8')
+    app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'app.py')).run(timeout=30)
+    app.text_input(key='input_path').set_value(str(folder))
+    app.text_input(key='config_path').set_value(str(config_path)).run(timeout=30)
+    app.button(key='validate').click().run(timeout=30)
+    assert not app.exception
+    assert app.checkbox(key='qc_enable_max_pct_mt').disabled
+    assert not app.checkbox(key='qc_enable_max_pct_mt').value
+    assert app.session_state['qc_current_preview']['thresholds']['max_pct_mt'] is None
+    assert app.session_state['qc_current_preview']['retained'] == 30
