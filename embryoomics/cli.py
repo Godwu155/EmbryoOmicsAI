@@ -13,7 +13,7 @@ def main(argv=None):
     sub = parser.add_subparsers(dest="command", required=True)
     for name in ("validate", "run"):
         cmd = sub.add_parser(name)
-        cmd.add_argument("--input", required=True, help="10x folder or .h5ad")
+        cmd.add_argument("--input", required=True, help="10x folder, .h5ad, or declared gene-by-cell TSV")
         cmd.add_argument("--config", required=True)
         cmd.add_argument("--metadata", help="Optional metadata.csv with exact cell IDs")
         if name == "run":

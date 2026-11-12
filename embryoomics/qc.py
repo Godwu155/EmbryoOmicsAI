@@ -17,10 +17,10 @@ def calculate_qc(data):
         mt_counts = np.asarray(counts[:, is_mt].sum(axis=1)).ravel()
         totals = data.obs["total_counts"].to_numpy()
         data.obs["pct_counts_mt"] = np.divide(mt_counts * 100, totals, out=np.full(data.n_obs, np.nan), where=totals > 0)
-        method = "mouse gene symbols, case-insensitive ^mt-"
+        method = "provided gene symbols, case-insensitive ^mt-"
     else:
         data.obs["pct_counts_mt"] = np.nan
-        method = "no matching mouse gene symbols"
+        method = "no matching gene symbols"
         warnings.append("No mitochondrial gene symbols matched; pct_counts_mt unavailable and mitochondrial filtering disabled.")
     return {"method": method, "matched_genes": int(is_mt.sum())}, warnings
 

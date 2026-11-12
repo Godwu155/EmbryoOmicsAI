@@ -1,0 +1,51 @@
+# File-level evidence for the EMAP research track. This does not alter the
+# mouse-only EmbryoOmics AI v0.1 analysis contract.
+sources:
+  - accession: GSE278981
+    sample_id: GSM8559287
+    species: mus_musculus
+    assay: single-cell RNA-seq
+    stage_scope: E7.0
+    landing_page: https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM8559287
+    local_folder: data/GSM8559287
+    validation_report: results/GSM8559287_001/run_manifest.json
+    matrix_format: filtered_10x_matrix_market
+    genes: 32285
+    cells: 10232
+    download_verified: true
+    file_parsed: true
+    license: unknown
+    limitations:
+      - One GEO sample does not establish independent embryo replicates.
+      - Genome build is unverified; the source record only states ARC mice.
+      - No stage trend or cross-modal pairing can be inferred from this sample alone.
+  - accession: GSE66507
+    species: homo_sapiens
+    assay: single-cell RNA-seq
+    stage_scope: blastocyst
+    file_url: https://ftp.ncbi.nlm.nih.gov/geo/series/GSE66nnn/GSE66507/suppl/GSE66507_human_blastocyst_rnaseq_counts.txt.gz
+    local_file: data/GSE66507_counts.txt.gz
+    validation_report: data/GSE66507_validation.json
+    compressed_bytes: 953644
+    sha256: ab822e52cb4aa0056e2135ff4ddf9a3e2451a0af0a739271688a4fa7dc23c4cb
+    genes: 63677
+    cells: 30
+    orientation: genes_by_cells
+    nonnegative_integer_values: true
+    download_verified: true
+    file_parsed: true
+    license: unknown
+    limitations:
+      - Cell labels contain TE, EPI, and PE tokens, but label semantics and embryo IDs require source metadata review.
+      - Integer values alone do not prove the original counting pipeline or biological replicate structure.
+      - Thirty cells are sufficient for import and QC checks, but weak for robust clustering claims.
+  - accession: E-MTAB-3929
+    species: homo_sapiens
+    assay: single-cell RNA-seq
+    stage_scope: D3-D7
+    landing_page: https://www.ebi.ac.uk/gxa/sc/experiments/E-MTAB-3929/downloads
+    download_verified: false
+    file_parsed: false
+    license: unknown
+    limitations:
+      - Select a specific raw-count file and verify its version, dimensions, and metadata before use as a benchmark.

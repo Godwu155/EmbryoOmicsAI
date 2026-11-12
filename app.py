@@ -10,6 +10,8 @@ import yaml
 from embryoomics.config import InputError, load_config
 from embryoomics.i18n import LANGUAGES, columns_for, t, warning_for
 from embryoomics.pipeline import inspect_input, run_analysis
+from embryoomics.io import review_identity
+from embryoomics.review import annotation_version, save_annotation_review, REVIEW_STATUSES
 
 
 st.set_page_config(page_title="EmbryoOmics AI v0.1", layout="wide")
@@ -30,6 +32,14 @@ except (InputError, FileNotFoundError, yaml.YAMLError) as exc:
     st.error(f"{t(language, 'configuration')}: {exc}")
     st.stop()
 
+try:
+    current_identity = review_identity(input_path, config, metadata_path or None)
+except (InputError, OSError):
+    current_identity = None
+if st.session_state.get('review_identity') != current_identity:
+    st.session_state.pop('inspection', None)
+    st.session_state['qc_confirm'] = False
+
 with pages[0]:
     fields = ("dataset_accession", "sample_id", "stage", "species", "genome_build", "source_url", "data_license", "raw_count_source")
     labels = columns_for(language)
@@ -39,13 +49,14 @@ with pages[0]:
         try:
             st.session_state["inspection"] = inspect_input(input_path, config_path, metadata_path or None)
             st.session_state["inspected_paths"] = (input_path, config_path, metadata_path)
+            st.session_state['review_identity'] = current_identity
+            st.session_state['qc_confirm'] = False
         except (InputError, FileNotFoundError, ValueError) as exc:
             st.error(str(exc))
     if "inspection" in st.session_state:
         info = st.session_state["inspection"]
         st.success(f"{info['cells']} {t(language, 'cells')} × {info['genes']} {t(language, 'genes')}")
-        mt_method = info["mt"]["method"]
-        mt_method = t(language, "mt_symbol_method" if mt_method.startswith("mouse gene symbols") else "mt_no_match")
+        mt_method = t(language, "mt_symbol_method" if info["mt"]["matched_genes"] else "mt_no_match")
         st.write(t(language, "mt_detection"), {t(language, "mt_method"): mt_method,
                                                t(language, "mt_matched"): info["mt"]["matched_genes"]})
         for warning in info["warnings"]:
@@ -79,7 +90,7 @@ with pages[1]:
     else:
         st.info(t(language, "validate_first"))
 
-result_dir = Path(st.session_state.get("result", {}).get("output", out_path))
+result_dir = Path(out_path)
 with pages[2]:
     if (result_dir / "markers.csv").is_file():
         st.image(str(result_dir / "figures" / "umap.png"))
@@ -91,9 +102,34 @@ with pages[2]:
                 "Scanpy Wilcoxon on log1p normalized expression; cluster vs rest": "Scanpy Wilcoxon 检验：log1p 归一化表达，聚类与其余细胞比较"})
         st.dataframe(shown_markers.rename(columns=labels))
         st.caption(t(language, "annotation_hint"))
+        st.caption(f"{t(language, 'annotation_target')}: {result_dir.resolve()}")
         current = pd.read_csv(result_dir / "annotations.csv", dtype=str, keep_default_na=False)
-        edited = st.data_editor(current, num_rows="fixed", hide_index=True,
-                                column_config={key: st.column_config.TextColumn(label) for key, label in labels.items() if key in current})
+        version = annotation_version(result_dir)
+        context_key = f'annotation_version:{result_dir.resolve()}'
+        expected_version = st.session_state.setdefault(context_key, version)
+        stale = expected_version != version
+        if stale:
+            st.warning(t(language, 'annotation_conflict'))
+            if st.button(t(language, 'annotation_reload'), key='annotations_reload'):
+                st.session_state[context_key] = version
+                st.rerun()
+        flash = st.session_state.pop('annotation_saved', None)
+        if flash:
+            st.success(t(language, 'annotation_saved' if flash == 'changed' else 'annotation_unchanged'))
+        with st.form('annotation_review_form'):
+            columns = {key: st.column_config.TextColumn(label) for key, label in labels.items() if key in current}
+            columns['review_status'] = st.column_config.SelectboxColumn(labels.get('review_status', 'Review status'), options=REVIEW_STATUSES, required=True)
+            edited = st.data_editor(current, num_rows="fixed", hide_index=True, disabled=['cluster_id'],
+                                    column_config=columns, key=f'annotation_editor:{result_dir.resolve()}:{expected_version}')
+            save_clicked = st.form_submit_button(t(language, 'annotation_save'), disabled=stale, key='annotations_save')
+        if save_clicked:
+            try:
+                saved = save_annotation_review(result_dir, edited, expected_version)
+                st.session_state[context_key] = saved['version']
+                st.session_state['annotation_saved'] = 'changed' if saved['changed'] else 'unchanged'
+                st.rerun()
+            except (InputError, OSError, ValueError) as exc:
+                st.error(str(exc))
         st.download_button(t(language, "annotation_download"), edited.to_csv(index=False).encode("utf-8"), "annotations_reviewed.csv", "text/csv", key="annotations_download")
         st.caption(t(language, "annotation_rerun"))
     else:
@@ -102,6 +138,10 @@ with pages[2]:
 with pages[3]:
     if (result_dir / "report.html").is_file():
         st.write(f"{t(language, 'report_location')}: {result_dir / 'report.html'}")
+        if (result_dir / 'report_bundle.zip').is_file():
+            st.download_button('完整离线报告 / Complete offline report (ZIP)',
+                               (result_dir / 'report_bundle.zip').read_bytes(), 'report_bundle.zip',
+                               'application/zip', key='report_bundle')
         for filename in ("report.html", "run_manifest.json", "qc_metrics.csv", "markers.csv", "annotations.csv", "processed.h5ad"):
             st.download_button(filename, (result_dir / filename).read_bytes(), filename, key=filename)
         st.caption(t(language, "ai_disabled"))

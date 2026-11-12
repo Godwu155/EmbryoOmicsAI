@@ -5,6 +5,7 @@ import platform
 import shutil
 import time
 import importlib.metadata as metadata
+import zipfile
 import psutil
 
 import numpy as np
@@ -109,4 +110,8 @@ def run_analysis(config_path, input_path, out, metadata_path=None, annotations_p
                 "peak_working_set_bytes": peak_memory,
                 "files": ["report.html", "run_manifest.json", "qc_metrics.csv", "qc_preview.csv", "markers.csv", "annotations.csv", "cluster_composition.csv", "processed.h5ad", "config.yaml", "figures/qc.png", "figures/umap.png"]}
     write_report(out, manifest, qc_summary, markers, annotations)
+    # Keep relative image and download links usable after downloading the report.
+    with zipfile.ZipFile(out / 'report_bundle.zip', 'w', compression=zipfile.ZIP_DEFLATED) as bundle:
+        for name in manifest['files']:
+            bundle.write(out / name, arcname=name)
     return {"output": str(out.resolve()), "cells": data.n_obs, "genes": data.n_vars, "clusters": len(clusters), "elapsed_seconds": manifest["elapsed_seconds"]}

@@ -35,11 +35,16 @@ def load_annotations(path, clusters):
     if path is None:
         return pd.DataFrame([{**{column: "" for column in ANNOTATION_COLUMNS}, "cluster_id": cluster, "candidate_cell_type": "unknown", "review_status": "unreviewed"} for cluster in clusters])
     table = pd.read_csv(path, dtype=str, keep_default_na=False)
+    return validate_annotations(table, clusters)
+
+
+def validate_annotations(table, clusters):
+    table = table.copy().fillna('').astype(str)
     missing = set(ANNOTATION_COLUMNS) - set(table)
     if missing:
         raise InputError(f"ANNOTATIONS: missing columns {sorted(missing)}")
     if table.cluster_id.duplicated().any() or set(table.cluster_id) != set(clusters):
         raise InputError("ANNOTATIONS: exactly one row per current cluster is required")
-    if (table.candidate_cell_type == "").any():
+    if (table.candidate_cell_type.str.strip() == "").any():
         raise InputError("ANNOTATIONS: use 'unknown' for unresolved cell types")
     return table[ANNOTATION_COLUMNS].sort_values("cluster_id")

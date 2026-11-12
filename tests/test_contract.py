@@ -1,5 +1,6 @@
 import gzip
 import json
+import zipfile
 from pathlib import Path
 
 import anndata as ad
@@ -94,6 +95,9 @@ def test_end_to_end_preserves_counts(sample, tmp_path, monkeypatch):
     assert all(len(entry["sha256"]) == 64 for entry in manifest["input_files"])
     assert manifest["seed"] == 42 and manifest["ai"]["enabled"] is False
     assert all((out / name).is_file() for name in manifest["files"])
+    with zipfile.ZipFile(out / 'report_bundle.zip') as bundle:
+        assert set(bundle.namelist()) == set(manifest['files'])
+        assert bundle.testzip() is None
     report = (out / "report.html").read_text(encoding="utf-8")
     assert "id='content-en'" in report and "id='content-zh-CN'" in report
     assert "Language / 语言" in report and "setReportLanguage" in report
@@ -105,8 +109,20 @@ def test_end_to_end_preserves_counts(sample, tmp_path, monkeypatch):
     np.testing.assert_array_equal(processed.layers["counts"].toarray(), values)
     with pytest.raises(InputError, match="OUTPUT_EXISTS"):
         run_analysis(config_path, folder, out)
+    # Bind the workspace explicitly so this also works with pytest's default temp directory.
+    with monkeypatch.context() as workspace:
+        workspace.chdir(tmp_path)
+        assert run_analysis(config_path, folder, out, overwrite=True)["cells"] == 30
+    other_workspace = tmp_path / 'other_workspace'
+    other_workspace.mkdir()
+    with monkeypatch.context() as workspace:
+        workspace.chdir(other_workspace)
+        with pytest.raises(InputError, match='OVERWRITE_UNSAFE'):
+            run_analysis(config_path, folder, out, overwrite=True)
+    unsafe = tmp_path / "unrelated"
+    unsafe.mkdir()
     with pytest.raises(InputError, match="OVERWRITE_UNSAFE"):
-        run_analysis(config_path, folder, out, overwrite=True)
+        run_analysis(config_path, folder, unsafe, overwrite=True)
     from streamlit.testing.v1 import AppTest
 
     app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py")).run(timeout=30)
@@ -123,3 +139,72 @@ def test_streamlit_language_switch():
     app.selectbox[0].set_value("简体中文").run(timeout=30)
     assert [tab.label for tab in app.tabs] == ["数据", "质控", "结果", "报告"]
     assert not app.exception
+
+
+def test_qc_confirmation_invalidated_when_config_changes(sample):
+    from streamlit.testing.v1 import AppTest
+    folder, config_path, config, _ = sample
+    app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'app.py')).run()
+    app.text_input(key='input_path').set_value(str(folder))
+    app.text_input(key='config_path').set_value(str(config_path)).run()
+    app.button(key='validate').click().run()
+    app.checkbox(key='qc_confirm').check().run()
+    assert app.checkbox(key='qc_confirm').value
+    config['qc']['min_genes'] = 2
+    config_path.write_text(yaml.safe_dump(config), encoding='utf-8')
+    app.run()
+    assert not app.exception
+    assert not app.checkbox
+    assert not app.session_state['qc_confirm']
+
+
+def test_gene_by_cell_tsv_requires_layout_and_preserves_orientation(tmp_path):
+    path = tmp_path / "counts.txt.gz"
+    with gzip.open(path, "wt", encoding="utf-8") as handle:
+        handle.write("Gene\tcell_a\tcell_b\nENSG1\t2\t0\nENSG2\t1\t3\n")
+    config = {"species": "homo_sapiens", "raw_count_source": "X", "sample_id": "test", "stage": "blastocyst"}
+    with pytest.raises(InputError, match="TSV_LAYOUT"):
+        load_counts(path, config)
+    config["count_matrix_layout"] = "genes_by_cells_tsv"
+    data, _ = load_counts(path, config)
+    assert data.shape == (2, 2)
+    assert data.obs_names.tolist() == ["cell_a", "cell_b"]
+    assert data.var_names.tolist() == ["ENSG1", "ENSG2"]
+    np.testing.assert_array_equal(data.layers["counts"].toarray(), [[2, 1], [0, 3]])
+    with gzip.open(path, "wt", encoding="utf-8") as handle:
+        handle.write("Gene\tcell_a\tcell_b\nENSG1\t2.5\t0\n")
+    with pytest.raises(InputError, match="COUNTS_NOT_RAW"):
+        load_counts(path, config)
+
+
+def test_direct_annotation_save_in_interface(sample, tmp_path):
+    from streamlit.testing.v1 import AppTest
+    folder, config_path, _, _ = sample
+    out = tmp_path / 'editable_run'
+    run_analysis(config_path, folder, out)
+    app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'app.py')).run(timeout=30)
+    app.text_input(key='out_path').set_value(str(out)).run(timeout=30)
+    editor_key = next(key for key in app.session_state.filtered_state if key.startswith('annotation_editor:'))
+    app.session_state[editor_key] = {'edited_rows': {0: {'candidate_cell_type': 'test candidate', 'review_status': 'in_review'}},
+                                   'added_rows': [], 'deleted_rows': []}
+    app.button(key='annotations_save').click().run(timeout=30)
+    assert not app.exception
+    saved = pd.read_csv(out / 'annotations.csv')
+    assert saved.loc[0, 'candidate_cell_type'] == 'test candidate'
+    assert 'test candidate' in (out / 'report.html').read_text(encoding='utf-8')
+    assert any('Annotations saved' in element.value for element in app.success)
+    # A fresh page must load the saved edits, rather than session-only state.
+    fresh = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'app.py')).run(timeout=30)
+    fresh.text_input(key='out_path').set_value(str(out)).run(timeout=30)
+    assert not fresh.exception
+    assert fresh.dataframe[-1].value.iloc[0].candidate_cell_type == 'test candidate'
+    from embryoomics.review import annotation_version, save_annotation_review
+    changed = pd.read_csv(out / 'annotations.csv', dtype=str, keep_default_na=False)
+    changed.loc[0, 'reviewer_note'] = 'saved from another page'
+    save_annotation_review(out, changed, annotation_version(out))
+    fresh.run(timeout=30)
+    assert fresh.button(key='annotations_save').disabled
+    fresh.button(key='annotations_reload').click().run(timeout=30)
+    assert not fresh.exception
+    assert not fresh.button(key='annotations_save').disabled
+    assert fresh.dataframe[-1].value.iloc[0].reviewer_note == 'saved from another page'
