@@ -4,6 +4,17 @@ LANGUAGES = {"English": "en", "简体中文": "zh-CN"}
 
 TEXT = {
     "en": {
+        'qc_doublets': 'Scrublet candidate doublets',
+        'doublets_title': 'Optional Scrublet doublet review', 'doublets_mode': 'Doublet action',
+        'doublets_off': 'Off', 'doublets_score': 'Score only (keep candidates)', 'doublets_filter': 'Filter after explicit confirmation',
+        'doublets_help': 'Candidates are not confirmed doublets. Scoring uses raw counts after ordinary QC, one capture batch per run. Supply an experimental expected rate and review the observed/simulated distributions before choosing a threshold; no biological recommendation is supplied. Unknown upstream handling may mean repeated filtering.',
+        'doublets_rate': 'Expected doublet fraction (0–1)', 'doublets_threshold': 'Candidate score threshold (score > threshold)',
+        'doublets_pcs': 'Scrublet principal components', 'doublets_upstream': 'Upstream doublet removal',
+        'doublets_upstream_unknown': 'Unknown', 'doublets_upstream_not_removed': 'Reported not removed', 'doublets_upstream_removed': 'Reported removed',
+        'doublets_preview': 'Calculate doublet preview', 'doublets_preview_required': 'Calculate and review the current doublet preview before running.',
+        'doublets_candidates': 'Candidate doublets', 'doublets_observed': 'Observed scores', 'doublets_simulated': 'Simulated doublet scores',
+        'doublets_download': 'Download doublet audit CSV', 'doublets_confirm': 'I reviewed these scores and explicitly confirm removing the flagged candidates',
+        'doublets_summary': 'Scrublet review and filtering decision',
         "marker_dotplot": "Marker expression dot plot (all clusters)",
         "marker_heatmap": "Marker mean expression heatmap (all clusters)",
         "marker_plots_help": "Scanpy plots use log1p normalized expression without scaling. Dot size is the fraction of cells with expression above zero; color shows mean expression across all cells in each cluster. Up to 3 positive markers per cluster and 30 unique gene IDs are selected in marker-table rank order. Labels retain gene IDs. These are exploratory markers, not confirmed cell types.",
@@ -64,6 +75,17 @@ TEXT = {
         "review_limit": "Cell type labels require human review. Cluster markers are exploratory and cells are not biological replicates. No lineage, causal, or cross-modality claim is made.",
     },
     "zh-CN": {
+        'qc_doublets': 'Scrublet 候选双细胞',
+        'doublets_title': '可选 Scrublet 双细胞审核', 'doublets_mode': '双细胞处理方式',
+        'doublets_off': '关闭', 'doublets_score': '仅评分（保留候选）', 'doublets_filter': '明确确认后过滤',
+        'doublets_help': '候选标记不等于已确认双细胞。评分使用普通 QC 后的原始计数，每次仅分析一个捕获批次。请依据实验填写期望比例，并结合实测与模拟分数分布审核阈值；此处不提供生物学推荐值。上游处理未知时可能发生重复过滤。',
+        'doublets_rate': '期望双细胞比例（0–1）', 'doublets_threshold': '候选分数阈值（分数大于阈值）',
+        'doublets_pcs': 'Scrublet 主成分数', 'doublets_upstream': '上游是否去除双细胞',
+        'doublets_upstream_unknown': '未知', 'doublets_upstream_not_removed': '资料表明未去除', 'doublets_upstream_removed': '资料表明已去除',
+        'doublets_preview': '计算双细胞预览', 'doublets_preview_required': '请先计算并审核当前双细胞预览，再运行分析。',
+        'doublets_candidates': '候选双细胞数', 'doublets_observed': '实测细胞分数', 'doublets_simulated': '模拟双细胞分数',
+        'doublets_download': '下载双细胞审核 CSV', 'doublets_confirm': '我已审核这些分数，明确确认去除标记的候选细胞',
+        'doublets_summary': 'Scrublet 审核与过滤决定',
         "marker_dotplot": "Marker 表达点图（全部聚类）",
         "marker_heatmap": "Marker 平均表达热图（全部聚类）",
         "marker_plots_help": "调用 Scanpy 绘制，使用未经缩放的 log1p 归一化表达。点大小为表达大于零的细胞比例，颜色为聚类内全部细胞的平均表达。按 marker 表原有排名，每群最多取 3 个正向 marker，总计最多 30 个不同基因 ID；标签保留 ID。这些是探索性 marker，不代表已确认的细胞类型。",
@@ -126,6 +148,8 @@ TEXT = {
 }
 
 COLUMNS = {
+    'doublet_score': '双细胞分数', 'predicted_doublet': '候选双细胞', 'ordinary_qc_pass': '普通 QC 通过',
+    'removed_as_doublet': '按候选双细胞去除', 'retained': '最终保留',
     "dataset_accession": "数据集编号", "species": "物种", "genome_build": "基因组版本",
     "source_url": "来源链接", "data_license": "数据再利用许可", "raw_count_source": "原始计数来源",
     "min_genes": "最少检出基因数", "max_genes": "最多检出基因数", "max_pct_mt": "最高线粒体计数比例 (%)",
@@ -143,6 +167,7 @@ COLUMNS = {
 }
 
 WARNINGS = {
+    'Scrublet candidates are exploratory; upstream doublet handling may be unknown and labels are not confirmed doublets.': 'Scrublet 候选仅供探索；上游双细胞处理可能未知，候选标签不代表已确认双细胞。',
     "No mitochondrial gene symbols matched; pct_counts_mt unavailable and mitochondrial filtering disabled.": "未匹配到线粒体基因符号；无法计算线粒体计数比例，线粒体过滤已禁用。",
     "Single-sample clustering and marker tests are exploratory; cell counts are not biological replicate counts.": "单样本聚类与 marker 检验仅供探索；细胞数不能当作生物学重复数。",
     "Genome build is unknown; gene ID mapping is not verified.": "基因组版本未知；基因 ID 映射尚未核实。",

@@ -9,10 +9,11 @@ import yaml
 
 from embryoomics.config import InputError, load_config, validate_config
 from embryoomics.i18n import LANGUAGES, columns_for, t, warning_for
-from embryoomics.pipeline import inspect_input, run_analysis
+from embryoomics.pipeline import inspect_input, inspect_doublets, run_analysis
 from embryoomics.io import review_identity
 from embryoomics.review import annotation_version, save_annotation_review, REVIEW_STATUSES
 from embryoomics.qc import preview_qc_metrics
+from embryoomics.doublets import apply_doublet_decision
 from embryoomics.explorer import result_metadata, find_genes, gene_expression, expression_summary
 
 
@@ -80,6 +81,9 @@ with pages[1]:
         info = st.session_state["inspection"]
         metrics = info["qc_metrics"]
         if st.session_state.get('qc_controls_identity') != current_identity:
+            st.session_state.pop('doublet_controls', None)
+            for key in ('doublet_mode', 'doublet_rate', 'doublet_threshold', 'doublet_pcs', 'doublet_upstream'):
+                st.session_state.pop(key, None)
             for rule in ('min_genes', 'max_genes', 'max_pct_mt'):
                 st.session_state.pop(f'qc_enable_{rule}', None)
                 st.session_state.pop(f'qc_value_{rule}', None)
@@ -104,17 +108,61 @@ with pages[1]:
             thresholds[rule] = value if enabled and available else None
         if not mt_available:
             st.info(t(language, 'qc_mt_unavailable'))
-        preview_identity = (current_identity, tuple(thresholds.items()))
+        st.subheader(t(language, 'doublets_title'))
+        st.caption(t(language, 'doublets_help'))
+        doublets = {**config['doublets'], **st.session_state.get('doublet_controls', {})}
+        doublets['mode'] = st.selectbox(t(language, 'doublets_mode'), ['off', 'score', 'filter'],
+            index=['off', 'score', 'filter'].index(doublets['mode']), format_func=lambda v: t(language, 'doublets_' + v), key='doublet_mode')
+        if doublets['mode'] != 'off':
+            doublets['expected_doublet_rate'] = st.number_input(t(language, 'doublets_rate'), min_value=0.001, max_value=0.999,
+                value=float(doublets['expected_doublet_rate']) if doublets['expected_doublet_rate'] is not None else None, step=0.01, key='doublet_rate')
+            doublets['threshold'] = st.number_input(t(language, 'doublets_threshold'), min_value=0.001, max_value=0.999,
+                value=float(doublets['threshold']) if doublets['threshold'] is not None else None, step=0.01, key='doublet_threshold')
+            doublets['n_prin_comps'] = st.number_input(t(language, 'doublets_pcs'), min_value=2, value=doublets['n_prin_comps'], step=1, key='doublet_pcs')
+            doublets['upstream_handling'] = st.selectbox(t(language, 'doublets_upstream'), ['unknown', 'not_removed', 'removed'],
+                index=['unknown', 'not_removed', 'removed'].index(doublets['upstream_handling']),
+                format_func=lambda v: t(language, 'doublets_upstream_' + v), key='doublet_upstream')
+        st.session_state['doublet_controls'] = doublets.copy()
+        preview_identity = (current_identity, tuple(thresholds.items()), tuple(doublets.items()))
         if preview_identity != st.session_state.get('qc_preview_identity'):
             st.session_state['qc_confirm'] = False
+            st.session_state['doublet_confirm'] = False
+            st.session_state.pop('doublet_preview', None)
         st.session_state['qc_preview_identity'] = preview_identity
         can_run = False
         try:
             for rule in thresholds:
                 if st.session_state.get(f'qc_enable_{rule}') and thresholds[rule] is None:
                     raise InputError(t(language, 'qc_value_required'))
-            effective_config = validate_config({**config, 'qc': thresholds})
+            effective_config = validate_config({**config, 'qc': thresholds, 'doublets': doublets})
             mask, summary, reasons = preview_qc_metrics(metrics, effective_config['qc'])
+            doublet_ready = True
+            if doublets['mode'] != 'off':
+                if st.button(t(language, 'doublets_preview'), key='doublet_preview_button'):
+                    st.session_state['doublet_preview'] = inspect_doublets(input_path, config_path, metadata_path or None,
+                        qc_override=thresholds, doublet_override=doublets)
+                preview = st.session_state.get('doublet_preview')
+                doublet_ready = preview is not None
+                if preview is None:
+                    st.info(t(language, 'doublets_preview_required'))
+                else:
+                    ordinary_retained = int(mask.sum())
+                    st.write({t(language, 'doublets_candidates'): preview['summary']['candidate_doublets'],
+                              t(language, 'qc_retained_cells'): preview['retained']})
+                    st.dataframe(preview['audit'].rename(columns=labels), hide_index=False)
+                    for key, values in [('doublets_observed', preview['scores'].doublet_score), ('doublets_simulated', preview['simulated'])]:
+                        counts, edges = np.histogram(values, bins=30)
+                        st.caption(t(language, key))
+                        st.bar_chart(pd.DataFrame({t(language, 'chart_count'): counts}, index=(edges[:-1] + edges[1:]) / 2))
+                    st.download_button(t(language, 'doublets_download'), preview['audit'].to_csv(), 'doublet_scores.csv', 'text/csv')
+                    if doublets['mode'] == 'filter':
+                        mask, _ = apply_doublet_decision(metrics, mask, preview['scores'], doublets)
+                        summary['retained_cells'] = int(mask.sum())
+                        summary['removed_cells'] = summary.input_cells - summary.retained_cells
+                    reasons = pd.DataFrame([*reasons.to_dict(orient='records'), {
+                        'filter_rule': 'doublets', 'threshold': doublets['threshold'], 'enabled': doublets['mode'] == 'filter',
+                        'failed_cells': preview['summary']['candidate_doublets'], 'newly_removed_cells': ordinary_retained - int(mask.sum()),
+                        'retained_after_rule': int(mask.sum())}])
             st.session_state['qc_current_preview'] = {'thresholds': thresholds.copy(), 'retained': int(mask.sum())}
             cards = st.columns(3)
             for card, label, count in zip(cards, ('input_cells', 'retained_cells', 'removed_cells'),
@@ -132,7 +180,7 @@ with pages[1]:
             elif (metrics.loc[mask, 'total_counts'] == 0).any():
                 st.error(t(language, 'qc_empty_cells'))
             else:
-                can_run = True
+                can_run = doublet_ready
         except InputError as exc:
             st.session_state.pop('qc_current_preview', None)
             st.error(str(exc))
@@ -145,11 +193,17 @@ with pages[1]:
                 histogram = pd.DataFrame({"bin_midpoint": (edges[:-1] + edges[1:]) / 2, t(language, "chart_count"): counts}).set_index("bin_midpoint")
                 st.bar_chart(histogram)
         st.caption(t(language, "qc_edit"))
+        doublet_confirmed = False
+        if doublets['mode'] == 'filter':
+            doublet_confirmed = st.checkbox(t(language, 'doublets_confirm'), disabled=not can_run, key='doublet_confirm')
+            can_run = can_run and doublet_confirmed
         confirmed = st.checkbox(t(language, "qc_confirm"), disabled=not can_run, key="qc_confirm")
         if st.button(t(language, "run"), disabled=not confirmed or not can_run, key="run"):
             try:
                 result = run_analysis(config_path, input_path, out_path, metadata_path or None,
-                                      qc_override=thresholds, expected_input_identity=info['input_identity'])
+                                      qc_override=thresholds, expected_input_identity=info['input_identity'], doublet_override=doublets,
+                                      confirm_doublets=doublet_confirmed,
+                                      expected_doublet_digest=st.session_state['doublet_preview']['summary']['score_digest'] if doublets['mode'] != 'off' else None)
                 st.session_state["result"] = result
                 st.success(f"{t(language, 'completed')}: {result['output']}")
             except (InputError, FileNotFoundError, ValueError) as exc:
@@ -159,6 +213,12 @@ with pages[1]:
 
 result_dir = Path(out_path)
 with pages[2]:
+    if (result_dir / 'figures/doublet_scores.png').is_file():
+        with st.expander(t(language, 'doublets_summary')):
+            st.image(str(result_dir / 'figures/doublet_scores.png'))
+            st.caption(t(language, 'doublets_help'))
+            st.download_button(t(language, 'doublets_download'), (result_dir / 'doublet_scores.csv').read_bytes(),
+                               'doublet_scores.csv', 'text/csv', key='saved_doublet_download')
     if (result_dir / "markers.csv").is_file():
         current = pd.read_csv(result_dir / 'annotations.csv', dtype=str, keep_default_na=False)
         selected_cluster = st.selectbox(t(language, 'result_cluster'), ['__all__', *current.cluster_id.tolist()],

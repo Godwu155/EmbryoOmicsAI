@@ -49,6 +49,21 @@ For a `.h5ad`, set `raw_count_source` to `X`, `raw/X`, or `layers/<name>` in the
 
 ## Output and review
 
+### Optional Scrublet review
+
+Scrublet is off by default. After input validation, the QC page offers **Score only** or **Filter after explicit confirmation**. Enter an expected doublet fraction and a score threshold explicitly, then calculate the preview. Review observed/simulated score distributions and the cell audit CSV. Score-only keeps candidates; filtering requires a separate confirmation as well as the usual QC confirmation. Changes to input, QC or Scrublet settings invalidate the preview and confirmations. The run recomputes scores and rejects a mismatch with the reviewed preview. Source YAML is preserved.
+
+The method calls pinned Scanpy on raw counts after ordinary QC, uses exact neighbors and variance-normalized, uncentered SVD (`mean_center=False`) to avoid centering the full matrix. This differs from Scanpy's centered default; all parameters are recorded. Analyze one droplet capture batch per run. Tiny data, multiple declared batches, internal unscored cells, or unsuitable PCA dimensions block scoring with instructions; turn Scrublet off when inappropriate. The GEO record does not establish upstream doublet removal for GSM8559287. Candidate labels are exploratory and cannot prove that a cell is a doublet.
+
+For CLI use, add a `doublets` mapping to a copy of your configuration: `mode: score` or `filter`, `expected_doublet_rate` and `threshold` (both explicitly between 0 and 1), `n_prin_comps: 30`, and `upstream_handling: unknown` (or `not_removed` / `removed` when documented). Values depend on the experiment; no scientific threshold is supplied. Preview and review before requesting filtering:
+
+```powershell
+embryoomics preview-doublets --input data/GSM8559287 --config path/to/reviewed.yaml --out results/doublet_preview
+embryoomics run --input data/GSM8559287 --config path/to/reviewed.yaml --out results/doublet_run --confirm-qc --confirm-doublets
+```
+
+The extra `--confirm-doublets` flag is required only for filter mode. Preview output records settings and input identity. Analysis exports `doublet_scores.csv` for **all input cells** (QC-failed cells have blank scores), `doublet_simulated_scores.csv`, and `figures/doublet_scores.png`. The audit distinguishes ordinary QC, candidate status, actual removal and final retention. Retained-cell scores/flags are stored in `processed.h5ad`; the manifest and bilingual report record the method, decision and counts. ZIP and annotation-report refresh include these artifacts.
+
 New runs reuse the pinned Scanpy `dotplot` and `matrixplot` APIs to produce marker dot plots and cluster-mean expression heatmaps. The Results page displays these all-cluster overview plots in expandable panels; the bilingual HTML and offline ZIP include them too. The panel takes the first three positive-logfoldchange markers per cluster in `markers.csv` rank order, deduplicates gene IDs and caps the panel at 30 genes. `marker_plot_genes.csv` and the manifest record the panel and method. Colors show mean log1p normalized expression without scaling; dot size shows the fraction of cells with expression above zero. Labels retain gene IDs, including duplicate symbols. Empty positive-marker panels are recorded and skipped. Older runs remain readable and need a new analysis run to obtain these plots.
 
 Open-source reuse decisions and follow-up tasks: [reuse plan](docs/OPEN_SOURCE_REUSE.md).

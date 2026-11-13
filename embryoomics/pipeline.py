@@ -18,7 +18,8 @@ from .config import InputError, load_config, validate_config
 from .evidence import load_annotations, marker_table
 from .io import checksums, load_counts, review_identity
 from .qc import calculate_qc, preview_qc_metrics
-from .reporting import save_figures, save_marker_figures, write_report
+from .doublets import score_doublets, apply_doublet_decision
+from .reporting import save_figures, save_marker_figures, save_doublet_figure, write_report
 
 
 def inspect_input(input_path, config_path, metadata_path=None, *, apply_config_filters=True):
@@ -36,8 +37,27 @@ def inspect_input(input_path, config_path, metadata_path=None, *, apply_config_f
             "retained": int(mask.sum()), "files": [str(p) for p in files]}
 
 
+def inspect_doublets(input_path, config_path, metadata_path=None, *, qc_override=None, doublet_override=None):
+    source = load_config(config_path)
+    identity = review_identity(input_path, source, metadata_path)
+    config = validate_config({**source, 'qc': qc_override if qc_override is not None else source['qc'],
+                              'doublets': doublet_override if doublet_override is not None else source['doublets']})
+    if config['doublets']['mode'] == 'off':
+        raise InputError('SCRUBLET_OFF: enable scoring before requesting a preview')
+    data, files = load_counts(input_path, config, metadata_path)
+    calculate_qc(data)
+    mask, _, _ = preview_qc_metrics(data.obs, config['qc'])
+    scores, simulated, summary = score_doublets(data[mask], config['doublets'], config['seed'])
+    final, audit = apply_doublet_decision(data.obs, mask, scores, config['doublets'])
+    if identity != review_identity(input_path, load_config(config_path), metadata_path):
+        raise InputError('QC_STALE: input or configuration changed while scoring; validate again')
+    return {'scores': scores, 'simulated': simulated, 'summary': summary, 'audit': audit,
+            'retained': int(final.sum()), 'input_identity': identity, 'config': config}
+
+
 def run_analysis(config_path, input_path, out, metadata_path=None, annotations_path=None, overwrite=False,
-                 *, qc_override=None, expected_input_identity=None):
+                 *, qc_override=None, expected_input_identity=None, doublet_override=None,
+                 confirm_doublets=False, expected_doublet_digest=None):
     start = time.perf_counter()
     config = load_config(config_path)
     identity = review_identity(input_path, config, metadata_path)
@@ -45,6 +65,10 @@ def run_analysis(config_path, input_path, out, metadata_path=None, annotations_p
         raise InputError('QC_STALE: input or configuration changed; validate and review QC again')
     if qc_override is not None:
         config = validate_config({**config, 'qc': qc_override})
+    if doublet_override is not None:
+        config = validate_config({**config, 'doublets': doublet_override})
+    if config['doublets']['mode'] == 'filter' and not confirm_doublets:
+        raise InputError('DOUBLET_CONFIRMATION: review doublet scores and explicitly confirm filtering')
     out = Path(out)
     if out.exists() and not overwrite:
         raise InputError(f"OUTPUT_EXISTS: {out}; choose another path or --overwrite")
@@ -64,9 +88,29 @@ def run_analysis(config_path, input_path, out, metadata_path=None, annotations_p
     mt, warnings = calculate_qc(data)
     metrics = data.obs[["sample_id", "stage", "total_counts", "n_genes_by_counts", "pct_counts_mt"]].copy()
     mask, qc_summary, filter_reasons = preview_qc_metrics(data.obs, config["qc"])
+    doublet_summary = {'settings': config['doublets'], 'status': 'disabled'}
+    doublet_audit = None
+    if config['doublets']['mode'] != 'off':
+        scores, simulated, doublet_summary = score_doublets(data[mask], config['doublets'], config['seed'])
+        if expected_doublet_digest is not None and expected_doublet_digest != doublet_summary['score_digest']:
+            raise InputError('DOUBLET_STALE: scoring differs from the reviewed preview; preview again')
+        ordinary_retained = int(mask.sum())
+        mask, doublet_audit = apply_doublet_decision(data.obs, mask, scores, config['doublets'])
+        doublet_summary.update(status='completed', filtering_confirmed=bool(confirm_doublets) if config['doublets']['mode'] == 'filter' else False)
+        qc_summary['retained_cells'] = int(mask.sum())
+        qc_summary['removed_cells'] = qc_summary.input_cells - qc_summary.retained_cells
+        doublet_reason = {'filter_rule': 'doublets', 'threshold': config['doublets']['threshold'],
+            'enabled': config['doublets']['mode'] == 'filter', 'failed_cells': int(scores.predicted_doublet.sum()),
+            'newly_removed_cells': ordinary_retained - int(mask.sum()), 'retained_after_rule': int(mask.sum())}
+        filter_reasons = pd.DataFrame([*filter_reasons.to_dict(orient='records'), doublet_reason])
+        warnings.extend(doublet_summary['warnings'])
+        warnings.append('Scrublet candidates are exploratory; upstream doublet handling may be unknown and labels are not confirmed doublets.')
     if mask.sum() < 4:
         raise InputError(f"TOO_FEW_CELLS: {int(mask.sum())} cells remain; at least 4 are required for PCA/neighbors")
     data = data[mask].copy()
+    if doublet_audit is not None:
+        for column in scores:
+            data.obs[column] = scores.loc[data.obs_names, column].to_numpy()
     if (data.obs["total_counts"] == 0).any():
         raise InputError("ZERO_COUNT_CELL: QC retained empty cells; set min_genes >= 1")
     if np.count_nonzero(np.asarray((data.layers["counts"] > 0).sum(axis=0)).ravel()) < 3:
@@ -106,6 +150,9 @@ def run_analysis(config_path, input_path, out, metadata_path=None, annotations_p
         shutil.rmtree(out)
     out.mkdir(parents=True)
     metrics.to_csv(out / "qc_metrics.csv", index_label="cell_id")
+    if doublet_audit is not None:
+        doublet_audit.to_csv(out / 'doublet_scores.csv')
+        pd.DataFrame({'doublet_score': simulated}).to_csv(out / 'doublet_simulated_scores.csv', index=False)
     qc_summary.to_csv(out / "qc_preview.csv", index=False)
     filter_reasons.to_csv(out / 'qc_filter_reasons.csv', index=False)
     markers.to_csv(out / "markers.csv", index=False)
@@ -114,8 +161,10 @@ def run_analysis(config_path, input_path, out, metadata_path=None, annotations_p
     (out / "config.yaml").write_text(yaml.safe_dump(config, sort_keys=False, allow_unicode=True), encoding="utf-8")
     data.write_h5ad(out / "processed.h5ad", compression="gzip")
     save_figures(data, out, metrics)
+    if doublet_audit is not None:
+        save_doublet_figure(out, scores, simulated, config['doublets']['threshold'])
     marker_plots = save_marker_figures(data, out, markers)
-    versions = {name: metadata.version(name) for name in ("scanpy", "anndata", "numpy", "scipy", "pandas", "matplotlib", "python-igraph", "leidenalg", "streamlit", "psutil")}
+    versions = {name: metadata.version(name) for name in ("scanpy", "anndata", "numpy", "scipy", "pandas", "matplotlib", "python-igraph", "leidenalg", "streamlit", "psutil", "scikit-learn")}
     memory = psutil.Process().memory_info()
     peak_memory = getattr(memory, "peak_wset", None)
     manifest = {"dataset_accession": config["dataset_accession"], "sample_id": config["sample_id"], "stage": config["stage"],
@@ -129,6 +178,9 @@ def run_analysis(config_path, input_path, out, metadata_path=None, annotations_p
                 "peak_working_set_bytes": peak_memory,
                 "files": ["report.html", "run_manifest.json", "qc_metrics.csv", "qc_preview.csv", "qc_filter_reasons.csv", "markers.csv", "annotations.csv", "cluster_composition.csv", "processed.h5ad", "config.yaml", "figures/qc.png", "figures/umap.png"]}
     manifest['marker_plots'] = marker_plots
+    manifest['doublets'] = doublet_summary
+    if doublet_audit is not None:
+        manifest['files'].extend(['doublet_scores.csv', 'doublet_simulated_scores.csv', 'figures/doublet_scores.png'])
     manifest['files'].extend(marker_plots['files'])
     write_report(out, manifest, qc_summary, markers, annotations)
     # Keep relative image and download links usable after downloading the report.

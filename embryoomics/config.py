@@ -55,4 +55,20 @@ def validate_config(config):
     value = analysis.setdefault("leiden_resolution", 0.5)
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
         raise InputError("CONFIG: analysis.leiden_resolution must be positive")
+    doublets = config.setdefault('doublets', {})
+    if not isinstance(doublets, dict):
+        raise InputError('CONFIG: doublets must be a mapping')
+    if doublets.setdefault('mode', 'off') not in ('off', 'score', 'filter'):
+        raise InputError('CONFIG: doublets.mode must be off, score or filter')
+    for key in ('expected_doublet_rate', 'threshold'):
+        value = doublets.setdefault(key, None)
+        if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 < value < 1):
+            raise InputError(f'CONFIG: doublets.{key} must be between 0 and 1, exclusively')
+        if doublets['mode'] != 'off' and value is None:
+            raise InputError(f'CONFIG: set doublets.{key} explicitly when enabled')
+    value = doublets.setdefault('n_prin_comps', 30)
+    if not isinstance(value, int) or isinstance(value, bool) or value < 2:
+        raise InputError('CONFIG: doublets.n_prin_comps must be an integer >= 2')
+    if doublets.setdefault('upstream_handling', 'unknown') not in ('unknown', 'not_removed', 'removed'):
+        raise InputError('CONFIG: doublets.upstream_handling must be unknown, not_removed or removed')
     return config

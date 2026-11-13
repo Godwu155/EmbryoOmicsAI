@@ -80,6 +80,20 @@ def save_figures(data, out, input_qc_metrics):
         plt.close(fig)
 
 
+def save_doublet_figure(out, scores, simulated, threshold):
+    fig, axes = plt.subplots(1, 2, figsize=(9, 3.5))
+    try:
+        for axis, values, title in zip(axes, [scores.doublet_score, simulated], ['Observed cells', 'Simulated doublets']):
+            axis.hist(values, bins=40)
+            axis.axvline(threshold, color='red', label=f'Threshold = {threshold:g}')
+            axis.set(title=title, xlabel='Scrublet score', ylabel='Count')
+            axis.legend()
+        fig.tight_layout()
+        fig.savefig(Path(out) / 'figures/doublet_scores.png', dpi=140)
+    finally:
+        plt.close(fig)
+
+
 def write_report(out, manifest, qc_summary, markers, annotations):
     out = Path(out)
     def table(frame, language):
@@ -114,6 +128,19 @@ def write_report(out, manifest, qc_summary, markers, annotations):
         if manifest.get('qc', {}).get('filter_reasons'):
             qc_text += table(pd.DataFrame(manifest['qc']['filter_reasons']), language)
             qc_text += f"<p>{tr('qc_reasons_help')}</p>"
+        doublets = manifest.get('doublets', {})
+        if doublets.get('status') == 'completed':
+            settings = doublets['settings']
+            qc_text += (f"<h3>{tr('doublets_summary')}</h3><p>{tr('doublets_help')}</p>"
+                        f"<p>{tr('doublets_mode')}: {tr('doublets_' + settings['mode'])}; "
+                        f"{tr('doublets_rate')}: {settings['expected_doublet_rate']}; "
+                        f"{tr('doublets_threshold')}: {settings['threshold']}; "
+                        f"{tr('doublets_pcs')}: {settings['n_prin_comps']}; "
+                        f"{tr('seed')}: {doublets['seed']}; "
+                        f"{tr('doublets_upstream')}: {tr('doublets_upstream_' + settings['upstream_handling'])}; "
+                        f"{tr('doublets_candidates')}: {doublets['candidate_doublets']}; "
+                        f"{tr('qc_removed_cells')}: {doublets['removed_cells']}</p>"
+                        f"<figure><img src='figures/doublet_scores.png' alt='{tr('doublets_summary')}'></figure>")
         result_text = (f"<p>{tr('umap_limit')}</p><figure><img src='figures/umap.png' alt='{tr('umap_figure')}'><figcaption>{tr('umap_figure')} {tr('umap_axes')}</figcaption></figure>"
                        + table(markers.head(100), language))
         for name in ('marker_dotplot', 'marker_heatmap'):
