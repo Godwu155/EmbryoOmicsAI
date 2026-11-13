@@ -15,14 +15,16 @@ jobs:
           python-version: '3.12'
           cache: pip
           cache-dependency-path: requirements-lock.txt
+      - name: Create isolated environment
+        run: python -m venv .ci-venv
       - name: Install locked dependencies
-        run: python -m pip install -r requirements-lock.txt
+        run: ./.ci-venv/Scripts/python.exe -m pip install -r requirements-lock.txt
       - name: Check dependencies
-        run: python -m pip check
+        run: ./.ci-venv/Scripts/python.exe -m pip check
       - name: Run synthetic and interface tests
-        run: python -m pytest -q --junitxml=test-results/results.xml
+        run: ./.ci-venv/Scripts/python.exe -m pytest -q --junitxml=test-results/results.xml
       - name: Build development wheel
-        run: python -m pip wheel . --no-deps --wheel-dir dist
+        run: ./.ci-venv/Scripts/python.exe -m pip wheel . --no-deps --wheel-dir dist
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always()
         with:
