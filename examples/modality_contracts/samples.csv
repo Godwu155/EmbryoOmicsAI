@@ -1,0 +1,3 @@
+record_id,dataset_id,sample_id,species,stage,modality,assay,measurement_unit,embryo_id,cell_id,replicate_id
+synthetic_rna,SYNTHETIC_RNA,same_short_name,mus_musculus,E7.0,rna,rna_10x,cell,,,
+synthetic_protein,SYNTHETIC_PROTEIN,same_short_name,mus_musculus,E7.0,protein,mass_spec_quantification,sample,,,

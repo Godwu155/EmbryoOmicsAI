@@ -1,0 +1,18 @@
+dataset_accession: GSE66507
+sample_id: GSE66507
+stage: blastocyst
+species: homo_sapiens
+genome_build: unknown
+source_url: https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE66507
+data_license: unknown
+raw_count_source: X
+count_matrix_layout: genes_by_cells_tsv
+seed: 42
+qc:
+  min_genes: null
+  max_genes: null
+  max_pct_mt: null
+analysis:
+  n_top_genes: 2000
+  n_neighbors: 10
+  leiden_resolution: 0.5

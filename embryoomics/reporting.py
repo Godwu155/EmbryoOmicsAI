@@ -8,8 +8,46 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
+import scanpy as sc
 
 from .i18n import columns_for, t, warning_for
+
+
+def save_marker_figures(data, out, markers):
+    """Bound plotting to a small ranked gene panel; preserve the full sparse matrix."""
+    figures = Path(out) / 'figures'
+    figures.mkdir(exist_ok=True)
+    # marker_table preserves Scanpy rank order within each cluster.
+    candidates = markers.loc[markers.logfoldchange > 0] if not markers.empty else markers
+    panel = candidates.groupby('cluster_id', sort=False).head(3).drop_duplicates('gene_id').head(30)
+    panel = panel.loc[panel.gene_id.isin(data.var_names)].copy()
+    files = ['marker_plot_genes.csv']
+    panel.to_csv(Path(out) / files[0], index=False)
+    details = {'backend': 'scanpy.pl.dotplot / scanpy.pl.matrixplot',
+               'selection': 'First 3 positive-logfoldchange markers per cluster in markers.csv rank order; unique gene IDs; at most 30 genes',
+               'gene_ids': panel.gene_id.tolist(), 'expression': 'X: log1p normalized expression; use_raw=False; no scaling',
+               'detection': 'Fraction of cells with X > 0', 'files': files}
+    if panel.empty:
+        details['status'] = 'skipped_no_positive_markers'
+        return details
+    # Slice before Scanpy may densify; never materialize the full expression matrix.
+    view = data[:, panel.gene_id.tolist()].copy()
+    view.obs['cluster'] = pd.Categorical(view.obs['cluster'].astype(str))
+    labels = {row.gene_id: f'{row.gene_symbol} ({row.gene_id})' for row in panel.itertuples()}
+    view.var_names = [labels[gene] for gene in view.var_names]
+    for name, plotter in [('marker_dotplot', sc.pl.dotplot), ('marker_heatmap', sc.pl.matrixplot)]:
+        plot = plotter(view, var_names=view.var_names.tolist(), groupby='cluster', use_raw=False,
+                       dendrogram=False, return_fig=True, show=False,
+                       figsize=(max(7, len(panel) * 0.55), max(4, view.obs['cluster'].nunique() * 0.4 + 2)))
+        try:
+            plot.savefig(figures / f'{name}.png', dpi=140, bbox_inches='tight')
+        finally:
+            if plot.fig is not None:
+                plt.close(plot.fig)
+        files.append(f'figures/{name}.png')
+    details['status'] = 'generated'
+    return details
 
 
 def save_figures(data, out, input_qc_metrics):
@@ -42,10 +80,26 @@ def save_figures(data, out, input_qc_metrics):
         plt.close(fig)
 
 
+def save_doublet_figure(out, scores, simulated, threshold):
+    fig, axes = plt.subplots(1, 2, figsize=(9, 3.5))
+    try:
+        for axis, values, title in zip(axes, [scores.doublet_score, simulated], ['Observed cells', 'Simulated doublets']):
+            axis.hist(values, bins=40)
+            axis.axvline(threshold, color='red', label=f'Threshold = {threshold:g}')
+            axis.set(title=title, xlabel='Scrublet score', ylabel='Count')
+            axis.legend()
+        fig.tight_layout()
+        fig.savefig(Path(out) / 'figures/doublet_scores.png', dpi=140)
+    finally:
+        plt.close(fig)
+
+
 def write_report(out, manifest, qc_summary, markers, annotations):
     out = Path(out)
     def table(frame, language):
         shown = frame.copy()
+        if 'filter_rule' in shown:
+            shown['filter_rule'] = shown.filter_rule.map(lambda rule: t(language, 'qc_' + rule))
         if language == "zh-CN":
             replacements = {
                 "test_method": {"Scanpy Wilcoxon on log1p normalized expression; cluster vs rest": "Scanpy Wilcoxon 检验：log1p 归一化表达，聚类与其余细胞比较"},
@@ -71,8 +125,29 @@ def write_report(out, manifest, qc_summary, markers, annotations):
             f"{tr('license')}: {unknown_value(manifest['data_license'])}.</p>"
         )
         qc_text = table(qc_summary, language) + f"<figure><img src='figures/qc.png' alt='{tr('qc_figure')}'><figcaption>{tr('qc_figure')} {tr('qc_axes')}</figcaption></figure>"
+        if manifest.get('qc', {}).get('filter_reasons'):
+            qc_text += table(pd.DataFrame(manifest['qc']['filter_reasons']), language)
+            qc_text += f"<p>{tr('qc_reasons_help')}</p>"
+        doublets = manifest.get('doublets', {})
+        if doublets.get('status') == 'completed':
+            settings = doublets['settings']
+            qc_text += (f"<h3>{tr('doublets_summary')}</h3><p>{tr('doublets_help')}</p>"
+                        f"<p>{tr('doublets_mode')}: {tr('doublets_' + settings['mode'])}; "
+                        f"{tr('doublets_rate')}: {settings['expected_doublet_rate']}; "
+                        f"{tr('doublets_threshold')}: {settings['threshold']}; "
+                        f"{tr('doublets_pcs')}: {settings['n_prin_comps']}; "
+                        f"{tr('seed')}: {doublets['seed']}; "
+                        f"{tr('doublets_upstream')}: {tr('doublets_upstream_' + settings['upstream_handling'])}; "
+                        f"{tr('doublets_candidates')}: {doublets['candidate_doublets']}; "
+                        f"{tr('qc_removed_cells')}: {doublets['removed_cells']}</p>"
+                        f"<figure><img src='figures/doublet_scores.png' alt='{tr('doublets_summary')}'></figure>")
         result_text = (f"<p>{tr('umap_limit')}</p><figure><img src='figures/umap.png' alt='{tr('umap_figure')}'><figcaption>{tr('umap_figure')} {tr('umap_axes')}</figcaption></figure>"
                        + table(markers.head(100), language))
+        for name in ('marker_dotplot', 'marker_heatmap'):
+            if f'figures/{name}.png' in manifest['files']:
+                result_text += f"<figure><img src='figures/{name}.png' alt='{tr(name)}'><figcaption>{tr(name)}</figcaption></figure>"
+        if manifest.get('marker_plots', {}).get('status') == 'generated':
+            result_text += f"<p>{tr('marker_plots_help')}</p>"
         review_text = f"<p>{tr('review_limit')}</p>" + table(annotations, language)
         sections = [("data", tr("data"), data_text), ("qc", tr("qc"), qc_text),
                     ("results", tr("report_results"), result_text), ("review", tr("report_review"), review_text)]

@@ -1,0 +1,37 @@
+schema_version: 1
+primary_scope:
+  species: mus_musculus
+  stage: E7.0
+  sample_id: GSM8559287
+  analysis_unit: one_GEO_sample
+  note: A single sample cannot establish stage trends or embryo-level replication.
+stage_policy:
+  unknown_stage: preserve_original_label_and_require_review_before_stage_comparison
+  unsupported_species: reject_in_configuration
+  predicted_stage: never_replace_source_stage_label
+  cross_species_time_conversion: forbidden_without_independent_evidence
+stages:
+  - species: mus_musculus
+    canonical_stage: E7.0
+    source_stage_label: E7.0 Mouse embryo Single Cell RNA seq
+    source_sample: GSM8559287
+    source_url: https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM8559287
+    tissue_scope: embryo
+    support: primary_benchmark
+    uncertainty: Embryo identity and biological replicate count are not established by this one matrix.
+  - species: mus_musculus
+    canonical_stage: E7.25
+    source_stage_label: E7.25 mouse embryo Single Cell RNA seq
+    source_sample: GSM8559288
+    source_url: https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM8559288
+    tissue_scope: embryo
+    support: candidate_not_file_verified
+    uncertainty: Must validate the sample matrix and metadata before cross-stage analysis.
+  - species: mus_musculus
+    canonical_stage: E7.5
+    source_stage_label: E7.5 posterior mouse embryo Single Cell RNA seq
+    source_sample: GSM8559289
+    source_url: https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM8559289
+    tissue_scope: posterior_embryo_region
+    support: candidate_not_file_verified
+    uncertainty: Posterior-only tissue cannot be silently treated as a whole-embryo replicate.

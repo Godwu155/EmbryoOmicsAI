@@ -1,6 +1,8 @@
 """Sparse counts loading, strict validation, and input provenance."""
 
 import hashlib
+import csv
+import gzip
 from pathlib import Path
 
 import anndata as ad
@@ -27,10 +29,10 @@ def input_files(path, metadata_path=None):
         if len(set(prefixes)) != 1:
             raise InputError("TENX_FILES: matrix/features/barcodes prefixes differ; select one sample only")
         files = list(matches.values())
-    elif path.suffix.lower() == ".h5ad":
+    elif path.suffix.lower() == ".h5ad" or path.name.lower().endswith((".txt.gz", ".tsv.gz", ".txt", ".tsv")):
         files = [path]
     else:
-        raise InputError("FORMAT: provide a 10x three-file folder or .h5ad; CSV import is not enabled")
+        raise InputError("FORMAT: provide a 10x folder, .h5ad, or a declared gene-by-cell TSV count matrix")
     if metadata_path:
         meta = Path(metadata_path)
         if not meta.is_file():
@@ -50,8 +52,48 @@ def checksums(files):
     return result
 
 
+def review_identity(path, config, metadata_path=None):
+    """Bind a QC preview to its configuration and current input file state."""
+    files = input_files(path, metadata_path)
+    return (repr(config), tuple((str(p.resolve()), p.stat().st_size, p.stat().st_mtime_ns) for p in files))
+
+
 def _read_tsv(path):
     return pd.read_csv(path, sep="\t", header=None, dtype=str, compression="infer", keep_default_na=False)
+
+
+def _read_gene_by_cell_counts(path):
+    opener = gzip.open if path.name.lower().endswith(".gz") else open
+    with opener(path, "rt", encoding="utf-8-sig", newline="") as handle:
+        reader = csv.reader(handle, delimiter="\t")
+        header = next(reader, None)
+        if not header or len(header) < 2:
+            raise InputError("TSV_COLUMNS: expected one gene ID column and at least one cell column")
+        cell_ids = header[1:]
+        genes, values, indices, indptr = [], [], [], [0]
+        for line, row in enumerate(reader, start=2):
+            if len(row) != len(header):
+                raise InputError(f"TSV_COLUMNS: line {line} has {len(row)} columns; expected {len(header)}")
+            genes.append(row[0])
+            try:
+                for column, value in enumerate(row[1:]):
+                    count = int(value)
+                    if count < 0 or count > np.iinfo(np.int64).max:
+                        raise ValueError('count is outside nonnegative int64 range')
+                    if count:
+                        values.append(count)
+                        indices.append(column)
+            except ValueError as exc:
+                raise InputError(f"COUNTS_NOT_RAW: line {line} requires nonnegative int64 counts") from exc
+            indptr.append(len(values))
+    if not genes:
+        raise InputError("EMPTY: count matrix has no gene rows")
+    matrix = sparse.csr_matrix((np.asarray(values, dtype=np.int64), indices, indptr), shape=(len(genes), len(cell_ids)))
+    data = ad.AnnData(matrix.T.tocsr())
+    data.obs_names = pd.Index(cell_ids, name="cell_id")
+    data.var_names = pd.Index(genes, name="gene_id")
+    data.var["gene_symbol"] = ""
+    return data
 
 
 def load_counts(path, config, metadata_path=None):
@@ -79,7 +121,7 @@ def load_counts(path, config, metadata_path=None):
             data.var["feature_type"] = features.iloc[:, 2].to_numpy(dtype=str)
         if "feature_type" in data.var and not (data.var["feature_type"] == "Gene Expression").all():
             raise InputError("FEATURE_TYPE: folder includes non-gene-expression features; prepare an RNA-only triplet")
-    else:
+    elif path.suffix.lower() == ".h5ad":
         data = ad.read_h5ad(path)
         source = config["raw_count_source"]
         if source == "X":
@@ -98,6 +140,10 @@ def load_counts(path, config, metadata_path=None):
         data.X = matrix
         if "gene_symbol" not in data.var:
             data.var["gene_symbol"] = data.var_names.astype(str)
+    else:
+        if config.get("count_matrix_layout") != "genes_by_cells_tsv" or config["raw_count_source"] != "X":
+            raise InputError("TSV_LAYOUT: declare count_matrix_layout: genes_by_cells_tsv and raw_count_source: X")
+        data = _read_gene_by_cell_counts(path)
     if data.n_obs == 0 or data.n_vars == 0:
         raise InputError("EMPTY: matrix needs at least one cell and gene")
     for axis, ids in (("cell", data.obs_names), ("gene", data.var_names)):
@@ -111,6 +157,8 @@ def load_counts(path, config, metadata_path=None):
     counts.sum_duplicates()
     if not np.issubdtype(counts.dtype, np.number) or not np.isfinite(counts.data).all() or (counts.data < 0).any() or not np.equal(counts.data, np.floor(counts.data)).all():
         raise InputError("COUNTS_NOT_RAW: counts must be finite nonnegative integers; choose the raw counts layer")
+    if counts.data.size and int(counts.data.max()) > np.iinfo(np.int64).max:
+        raise InputError('COUNTS_RANGE: raw counts exceed the supported int64 range')
     counts.eliminate_zeros()
     data.X = counts.astype(np.int64)
     if metadata_path:

@@ -1,8 +1,12 @@
 .venv/
+.ci-venv/
 .idea/
 *.egg-info/
 __pycache__/
 .pytest_cache/
+.pytest_tmp/
+build/
+dist/
 *.py[cod]
 data/
 results/
