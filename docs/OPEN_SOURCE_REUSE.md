@@ -12,6 +12,8 @@ Validation: 31 tests passed, including actual Scanpy dot statistics against know
 
 ## Follow-up tasks
 
+GOD-69 now has a native Windows CELLxGENE 1.3.0 compatibility path, separate dependency lock, browsing-copy export and candidate-annotation proposal/apply bridge. All-cluster UMAP, unique symbol-plus-ID labels, real Ttr expression, browser save/proposal round trip and source preservation were verified. Source and viewer checksums prevent stale imports; mixed labels are conflicts rather than majority-vote replacements. See [CELLxGENE acceptance and usage](CELLXGENE_ACCEPTANCE.md). The viewer remains a separate optional process, with no CELLxGENE dependencies added to the main analysis environment.
+
 GOD-68 now reuses the existing Scanpy Scrublet API without new dependencies. Default is off; scoring and filtering are separate decisions, with explicit rate/threshold and per-run seed. UI preview changes invalidate confirmations and a score digest binds execution to the preview. CLI requires an extra `--confirm-doublets` for filtering. Raw post-QC counts are copied into a fresh AnnData, exact neighbors are used, and `mean_center=False` selects variance-normalized uncentered SVD; this is explicitly different from Scanpy's centered default. Batch, size and unscored-cell checks block unsupported cases. Per-cell audit includes QC-failed cells without invented scores; observed/simulated distributions and decisions survive report refresh/ZIP export. Upstream processing remains unknown for GSM8559287.
 
 | Linear | Upstream | Proposed reuse and acceptance gate |

@@ -27,6 +27,7 @@ test = ["pytest==9.0.1"]
 
 [project.scripts]
 embryoomics = "embryoomics.cli:main"
+embryoomics-cellxgene = "embryoomics.cellxgene:main"
 
 [tool.setuptools.packages.find]
 include = ["embryoomics*"]
