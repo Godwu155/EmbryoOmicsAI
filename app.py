@@ -12,7 +12,7 @@ from embryoomics.config import InputError, load_config, validate_config
 from embryoomics.i18n import LANGUAGES, columns_for, t, warning_for
 from embryoomics.pipeline import inspect_input, inspect_doublets, run_analysis
 from embryoomics.io import review_identity
-from embryoomics.review import annotation_version, save_annotation_review, REVIEW_STATUSES
+from embryoomics.review import annotation_snapshot, save_annotation_review, REVIEW_STATUSES
 from embryoomics.qc import preview_qc_metrics
 from embryoomics.doublets import apply_doublet_decision
 from embryoomics.explorer import result_metadata, find_genes, gene_expression, expression_summary
@@ -227,7 +227,7 @@ with pages[2]:
             st.download_button(t(language, 'doublets_download'), (result_dir / 'doublet_scores.csv').read_bytes(),
                                'doublet_scores.csv', 'text/csv', key='saved_doublet_download')
     if (result_dir / "markers.csv").is_file():
-        current = pd.read_csv(result_dir / 'annotations.csv', dtype=str, keep_default_na=False)
+        current, version = annotation_snapshot(result_dir)
         selected_cluster = st.selectbox(t(language, 'result_cluster'), ['__all__', *current.cluster_id.tolist()],
                                         format_func=lambda value: t(language, 'all_clusters') if value == '__all__' else value,
                                         key=f'result_cluster:{result_dir.resolve()}')
@@ -277,7 +277,6 @@ with pages[2]:
         st.caption(f"{t(language, 'annotation_target')}: {result_dir.resolve()}")
         shown_annotations = current if selected_cluster == '__all__' else current.loc[current.cluster_id == selected_cluster]
         st.caption(t(language, 'annotation_switch_hint'))
-        version = annotation_version(result_dir)
         context_key = f'annotation_version:{result_dir.resolve()}'
         expected_version = st.session_state.setdefault(context_key, version)
         stale = expected_version != version

@@ -109,6 +109,12 @@ def _run_analysis(config_path, input_path, out, metadata_path=None, annotations_
         if not out.is_dir() or workspace not in resolved.parents or not (resolved / "run_manifest.json").is_file():
             raise InputError("OVERWRITE_UNSAFE: only an existing EmbryoOmics run directory inside the current workspace may be overwritten")
     data, files = load_counts(input_path, config, metadata_path)
+    if out.exists() and overwrite:
+        protected = [*files, Path(config_path)]
+        if annotations_path is not None:
+            protected.append(Path(annotations_path))
+        if any(Path(path).resolve().is_relative_to(out.resolve()) for path in protected):
+            raise InputError('OVERWRITE_INPUT: output contains an input/configuration/annotation file; choose a new output directory')
     if identity != review_identity(input_path, load_config(config_path), metadata_path):
         raise InputError('QC_STALE: input or configuration changed while loading; validate again')
     input_checksums = checksums(files)

@@ -157,6 +157,8 @@ def load_counts(path, config, metadata_path=None):
     counts.sum_duplicates()
     if not np.issubdtype(counts.dtype, np.number) or not np.isfinite(counts.data).all() or (counts.data < 0).any() or not np.equal(counts.data, np.floor(counts.data)).all():
         raise InputError("COUNTS_NOT_RAW: counts must be finite nonnegative integers; choose the raw counts layer")
+    if counts.data.size and int(counts.data.max()) > np.iinfo(np.int64).max:
+        raise InputError('COUNTS_RANGE: raw counts exceed the supported int64 range')
     counts.eliminate_zeros()
     data.X = counts.astype(np.int64)
     if metadata_path:

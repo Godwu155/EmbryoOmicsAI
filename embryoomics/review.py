@@ -9,6 +9,7 @@ import shutil
 import tempfile
 import uuid
 import zipfile
+from io import BytesIO
 
 import pandas as pd
 
@@ -22,6 +23,12 @@ REVIEW_STATUSES = ['unreviewed', 'in_review', 'reviewed', 'rejected']
 
 def annotation_version(run):
     return hashlib.sha256((Path(run) / 'annotations.csv').read_bytes()).hexdigest()
+
+
+def annotation_snapshot(run):
+    """Bind the displayed table and its version to the same immutable bytes."""
+    content = (Path(run) / 'annotations.csv').read_bytes()
+    return pd.read_csv(BytesIO(content), dtype=str, keep_default_na=False), hashlib.sha256(content).hexdigest()
 
 
 def save_annotation_review(run, edited, expected_version):
