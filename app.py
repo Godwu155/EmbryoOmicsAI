@@ -13,6 +13,17 @@ from embryoomics.pipeline import inspect_input, run_analysis
 from embryoomics.io import review_identity
 from embryoomics.review import annotation_version, save_annotation_review, REVIEW_STATUSES
 from embryoomics.qc import preview_qc_metrics
+from embryoomics.explorer import result_metadata, find_genes, gene_expression, expression_summary
+
+
+@st.cache_data(show_spinner=False, max_entries=3)
+def cached_result_metadata(path, fingerprint):
+    return result_metadata(path)
+
+
+@st.cache_data(show_spinner=False, max_entries=8)
+def cached_gene_expression(path, fingerprint, gene_id):
+    return gene_expression(path, gene_id)
 
 
 st.set_page_config(page_title="EmbryoOmics AI v0.1", layout="wide")
@@ -149,9 +160,41 @@ with pages[1]:
 result_dir = Path(out_path)
 with pages[2]:
     if (result_dir / "markers.csv").is_file():
-        st.image(str(result_dir / "figures" / "umap.png"))
+        current = pd.read_csv(result_dir / 'annotations.csv', dtype=str, keep_default_na=False)
+        selected_cluster = st.selectbox(t(language, 'result_cluster'), ['__all__', *current.cluster_id.tolist()],
+                                        format_func=lambda value: t(language, 'all_clusters') if value == '__all__' else value,
+                                        key=f'result_cluster:{result_dir.resolve()}')
         st.caption(f"{t(language, 'umap_axes')} {t(language, 'umap_limit')}")
-        markers = pd.read_csv(result_dir / "markers.csv")
+        try:
+            processed = result_dir / 'processed.h5ad'
+            stat = processed.stat()
+            fingerprint = (stat.st_size, stat.st_mtime_ns)
+            points, genes = cached_result_metadata(str(processed.resolve()), fingerprint)
+            selected = np.ones(len(points), dtype=bool) if selected_cluster == '__all__' else points.cluster.to_numpy() == selected_cluster
+            st.scatter_chart(points.loc[selected], x='UMAP1', y='UMAP2', color='cluster', size=12, height=350)
+            query = st.text_input(t(language, 'gene_search'), key=f'gene_query:{result_dir.resolve()}')
+            if query.strip():
+                matches = find_genes(genes, query)
+                if matches.empty:
+                    st.info(t(language, 'gene_no_match'))
+                else:
+                    st.caption(t(language, 'gene_search_limit'))
+                    gene_id = st.selectbox(t(language, 'gene_select'), matches.index.tolist(), index=None,
+                                           format_func=lambda gene: f"{genes.loc[gene, 'gene_symbol'] or gene} ({gene})",
+                                           key=f'gene_selection:{result_dir.resolve()}:{query.strip().lower()}')
+                    if gene_id is not None:
+                        values = cached_gene_expression(str(processed.resolve()), fingerprint, gene_id)
+                        gene_points = points.assign(log1p_expression=values)
+                        st.scatter_chart(gene_points.loc[selected], x='UMAP1', y='UMAP2', color='log1p_expression', size=12, height=350)
+                        st.caption(t(language, 'gene_expression_help'))
+                        st.dataframe(expression_summary(points, values).rename(columns=labels), hide_index=True)
+        except (InputError, OSError, KeyError, ValueError) as exc:
+            st.warning(f"{t(language, 'result_view_error')}: {exc}")
+            if (result_dir / 'figures' / 'umap.png').is_file():
+                st.image(str(result_dir / 'figures' / 'umap.png'))
+        markers = pd.read_csv(result_dir / "markers.csv", dtype={'cluster_id': str})
+        if selected_cluster != '__all__':
+            markers = markers.loc[markers.cluster_id == selected_cluster]
         shown_markers = markers.copy()
         if language == "zh-CN" and "test_method" in shown_markers:
             shown_markers["test_method"] = shown_markers["test_method"].replace({
@@ -159,7 +202,8 @@ with pages[2]:
         st.dataframe(shown_markers.rename(columns=labels))
         st.caption(t(language, "annotation_hint"))
         st.caption(f"{t(language, 'annotation_target')}: {result_dir.resolve()}")
-        current = pd.read_csv(result_dir / "annotations.csv", dtype=str, keep_default_na=False)
+        shown_annotations = current if selected_cluster == '__all__' else current.loc[current.cluster_id == selected_cluster]
+        st.caption(t(language, 'annotation_switch_hint'))
         version = annotation_version(result_dir)
         context_key = f'annotation_version:{result_dir.resolve()}'
         expected_version = st.session_state.setdefault(context_key, version)
@@ -175,18 +219,19 @@ with pages[2]:
         with st.form('annotation_review_form'):
             columns = {key: st.column_config.TextColumn(label) for key, label in labels.items() if key in current}
             columns['review_status'] = st.column_config.SelectboxColumn(labels.get('review_status', 'Review status'), options=REVIEW_STATUSES, required=True)
-            edited = st.data_editor(current, num_rows="fixed", hide_index=True, disabled=['cluster_id'],
-                                    column_config=columns, key=f'annotation_editor:{result_dir.resolve()}:{expected_version}')
+            edited = st.data_editor(shown_annotations, num_rows="fixed", hide_index=True, disabled=['cluster_id'],
+                                    column_config=columns, key=f'annotation_editor:{result_dir.resolve()}:{expected_version}:{selected_cluster}')
             save_clicked = st.form_submit_button(t(language, 'annotation_save'), disabled=stale, key='annotations_save')
+        merged = pd.concat([current.loc[~current.cluster_id.isin(edited.cluster_id)], edited], ignore_index=True)
         if save_clicked:
             try:
-                saved = save_annotation_review(result_dir, edited, expected_version)
+                saved = save_annotation_review(result_dir, merged, expected_version)
                 st.session_state[context_key] = saved['version']
                 st.session_state['annotation_saved'] = 'changed' if saved['changed'] else 'unchanged'
                 st.rerun()
             except (InputError, OSError, ValueError) as exc:
                 st.error(str(exc))
-        st.download_button(t(language, "annotation_download"), edited.to_csv(index=False).encode("utf-8"), "annotations_reviewed.csv", "text/csv", key="annotations_download")
+        st.download_button(t(language, "annotation_download"), merged.to_csv(index=False).encode("utf-8"), "annotations_reviewed.csv", "text/csv", key="annotations_download")
         st.caption(t(language, "annotation_rerun"))
     else:
         st.info(t(language, "run_first"))

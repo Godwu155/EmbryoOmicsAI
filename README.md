@@ -63,6 +63,10 @@ To review existing results, set the sidebar results folder to that run. On **Res
 
 ## Repository layout
 
+The Results page includes a cluster selector that filters the UMAP, marker table, and annotation editor together. Search a gene symbol or ID, then choose a specific gene ID to view log1p normalized expression and detection statistics across clusters. Duplicate symbols retain separate gene IDs. Single-gene reads are chunked rather than loading the entire expression matrix. Save annotation changes before switching clusters; saving one cluster preserves the others, and CSV export includes all clusters.
+
+GitHub validation uses a fresh Windows/Python 3.12 runner to install locked dependencies, run synthetic/interface tests, and build a development wheel. Scientific review and real-data acceptance remain separate from CI.
+
 ```text
 embryoomics/  # shared config, import, QC, Scanpy, markers, report and CLI
 app.py        # local Streamlit interface

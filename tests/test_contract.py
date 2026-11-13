@@ -126,8 +126,8 @@ def test_end_to_end_preserves_counts(sample, tmp_path, monkeypatch):
     from streamlit.testing.v1 import AppTest
 
     app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py")).run(timeout=30)
-    app.selectbox[0].set_value("简体中文").run(timeout=30)
-    app.text_input[3].set_value(str(out)).run(timeout=30)
+    app.selectbox(key='language').set_value("简体中文").run(timeout=30)
+    app.text_input(key='out_path').set_value(str(out)).run(timeout=30)
     assert not app.exception
 
 
@@ -136,7 +136,7 @@ def test_streamlit_language_switch():
 
     app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py")).run(timeout=30)
     assert [tab.label for tab in app.tabs] == ["Data", "QC", "Results", "Report"]
-    app.selectbox[0].set_value("简体中文").run(timeout=30)
+    app.selectbox(key='language').set_value("简体中文").run(timeout=30)
     assert [tab.label for tab in app.tabs] == ["数据", "质控", "结果", "报告"]
     assert not app.exception
 
@@ -293,3 +293,35 @@ def test_missing_mitochondrial_symbols_disable_ui_filter(sample):
     assert not app.checkbox(key='qc_enable_max_pct_mt').value
     assert app.session_state['qc_current_preview']['thresholds']['max_pct_mt'] is None
     assert app.session_state['qc_current_preview']['retained'] == 30
+
+
+def test_result_explorer_and_selected_cluster_annotation_save(sample, tmp_path):
+    from streamlit.testing.v1 import AppTest
+    folder, config_path, _, _ = sample
+    out = tmp_path / 'explorer_run'
+    run_analysis(config_path, folder, out)
+    before = pd.read_csv(out / 'annotations.csv', dtype=str, keep_default_na=False)
+    cluster = before.cluster_id.iloc[0]
+    app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / 'app.py')).run(timeout=30)
+    app.text_input(key='out_path').set_value(str(out)).run(timeout=30)
+    app.selectbox(key=f'result_cluster:{out.resolve()}').set_value(cluster).run(timeout=30)
+    markers = next(item.value for item in app.dataframe if 'gene_id' in item.value and 'cluster_id' in item.value)
+    assert set(markers.cluster_id) == {cluster}
+    assert app.dataframe[-1].value.cluster_id.tolist() == [cluster]
+    app.text_input(key=f'gene_query:{out.resolve()}').set_value('Gene1').run(timeout=30)
+    gene_key = next(key for key in app.session_state.filtered_state if key.startswith('gene_selection:'))
+    app.selectbox(key=gene_key).set_value('id1').run(timeout=30)
+    assert not app.exception
+    summary = next(item.value for item in app.dataframe if 'mean_log1p_expression' in item.value)
+    assert set(summary.cluster) == set(before.cluster_id)
+    editor_key = next(key for key in app.session_state.filtered_state if key.startswith('annotation_editor:'))
+    app.session_state[editor_key] = {'edited_rows': {0: {'reviewer_note': 'selected cluster note'}}, 'added_rows': [], 'deleted_rows': []}
+    app.button(key='annotations_save').click().run(timeout=30)
+    assert not app.exception
+    after = pd.read_csv(out / 'annotations.csv', dtype=str, keep_default_na=False)
+    assert after.loc[after.cluster_id == cluster, 'reviewer_note'].iloc[0] == 'selected cluster note'
+    pd.testing.assert_frame_equal(before.loc[before.cluster_id != cluster].reset_index(drop=True),
+                                  after.loc[after.cluster_id != cluster].reset_index(drop=True))
+    app.text_input(key=f'gene_query:{out.resolve()}').set_value('not-a-gene').run(timeout=30)
+    assert not app.exception
+    assert any('No matching gene' in item.value for item in app.info)
