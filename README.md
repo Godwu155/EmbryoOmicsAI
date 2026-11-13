@@ -49,6 +49,14 @@ For a `.h5ad`, set `raw_count_source` to `X`, `raw/X`, or `layers/<name>` in the
 
 ## Output and review
 
+Optional offline functional enrichment is available through `python -m embryoomics.enrichment` (or `embryoomics-enrich` after installation), with a local GMT, explicit species/ID/source/version/license metadata and a detected-gene background. See [enrichment usage and limits](docs/ENRICHMENT_ACCEPTANCE.md). It saves a separate report/ZIP and does not modify the reviewed RNA run.
+
+Sample/pairing metadata contracts and the validator are documented in [modality_schema.md](docs/modality_schema.md). Protein and ATAC measurement readers remain planned. The [Backlog audit](docs/BACKLOG_AUDIT.md) records implemented evidence, naming differences and remaining gates for the original Linear tasks.
+
+New RNA runs include `run_status.json` and `run.log`. Output-writing failures are marked failed and the interface refuses to display them as completed results; the offline ZIP is promoted from a temporary file only after packaging finishes. Failures before an output directory exists remain visible as CLI/UI diagnostics. Existing output directories are never modified by a rejected run. `embryoomics --version` reports the installed package version, and CI includes basic Ruff syntax/undefined-name checks.
+
+`mitochondrial_gene_ids` may be an explicit list of unique input gene IDs in the YAML. When supplied, it overrides symbol-prefix detection and all listed IDs must exist. Otherwise the documented case-insensitive `^mt-` symbol rule remains the default. The detected method is recorded in the manifest and shown in the interface.
+
 ### Optional Scrublet review
 
 Scrublet is off by default. After input validation, the QC page offers **Score only** or **Filter after explicit confirmation**. Enter an expected doublet fraction and a score threshold explicitly, then calculate the preview. Review observed/simulated score distributions and the cell audit CSV. Score-only keeps candidates; filtering requires a separate confirmation as well as the usual QC confirmation. Changes to input, QC or Scrublet settings invalidate the preview and confirmations. The run recomputes scores and rejects a mismatch with the reviewed preview. Source YAML is preserved.

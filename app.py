@@ -6,6 +6,7 @@ import pandas as pd
 import numpy as np
 import streamlit as st
 import yaml
+import json
 
 from embryoomics.config import InputError, load_config, validate_config
 from embryoomics.i18n import LANGUAGES, columns_for, t, warning_for
@@ -69,7 +70,7 @@ with pages[0]:
     if "inspection" in st.session_state:
         info = st.session_state["inspection"]
         st.success(f"{info['cells']} {t(language, 'cells')} × {info['genes']} {t(language, 'genes')}")
-        mt_method = t(language, "mt_symbol_method" if info["mt"]["matched_genes"] else "mt_no_match")
+        mt_method = t(language, 'mt_configured' if info['mt']['method'] == 'configured mitochondrial gene IDs' else "mt_symbol_method" if info["mt"]["matched_genes"] else "mt_no_match")
         st.write(t(language, "mt_detection"), {t(language, "mt_method"): mt_method,
                                                t(language, "mt_matched"): info["mt"]["matched_genes"]})
         for warning in info["warnings"]:
@@ -213,6 +214,12 @@ with pages[1]:
 
 result_dir = Path(out_path)
 with pages[2]:
+    if (result_dir / 'run_status.json').is_file():
+        run_status = json.loads((result_dir / 'run_status.json').read_text(encoding='utf-8'))
+        if run_status.get('status') != 'completed':
+            st.error(t(language, 'run_incomplete'))
+            st.code(run_status.get('message', ''))
+            st.stop()
     if (result_dir / 'figures/doublet_scores.png').is_file():
         with st.expander(t(language, 'doublets_summary')):
             st.image(str(result_dir / 'figures/doublet_scores.png'))

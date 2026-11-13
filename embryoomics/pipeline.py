@@ -7,6 +7,9 @@ import time
 import importlib.metadata as metadata
 import zipfile
 import psutil
+import json
+import uuid
+from datetime import datetime, timezone
 
 import numpy as np
 import pandas as pd
@@ -26,7 +29,7 @@ def inspect_input(input_path, config_path, metadata_path=None, *, apply_config_f
     config = load_config(config_path)
     identity = review_identity(input_path, config, metadata_path)
     data, files = load_counts(input_path, config, metadata_path)
-    mt, warnings = calculate_qc(data)
+    mt, warnings = calculate_qc(data, config['mitochondrial_gene_ids'])
     thresholds = config['qc'] if apply_config_filters else {'min_genes': None, 'max_genes': None, 'max_pct_mt': None}
     mask, summary, reasons = preview_qc_metrics(data.obs, thresholds)
     if identity != review_identity(input_path, load_config(config_path), metadata_path):
@@ -45,7 +48,7 @@ def inspect_doublets(input_path, config_path, metadata_path=None, *, qc_override
     if config['doublets']['mode'] == 'off':
         raise InputError('SCRUBLET_OFF: enable scoring before requesting a preview')
     data, files = load_counts(input_path, config, metadata_path)
-    calculate_qc(data)
+    calculate_qc(data, config['mitochondrial_gene_ids'])
     mask, _, _ = preview_qc_metrics(data.obs, config['qc'])
     scores, simulated, summary = score_doublets(data[mask], config['doublets'], config['seed'])
     final, audit = apply_doublet_decision(data.obs, mask, scores, config['doublets'])
@@ -55,9 +58,37 @@ def inspect_doublets(input_path, config_path, metadata_path=None, *, qc_override
             'retained': int(final.sum()), 'input_identity': identity, 'config': config}
 
 
+def _record_status(out, execution_id, status, message, record=None):
+    record = record or {'execution_id': execution_id, 'status': status, 'timestamp_utc': datetime.now(timezone.utc).isoformat(), 'message': message}
+    target = Path(out) / 'run_status.json'
+    temporary = target.with_suffix('.json.tmp')
+    temporary.write_text(json.dumps(record, indent=2), encoding='utf-8')
+    temporary.replace(target)
+    with (Path(out) / 'run.log').open('a', encoding='utf-8') as handle:
+        handle.write(json.dumps(record) + '\n')
+
+
 def run_analysis(config_path, input_path, out, metadata_path=None, annotations_path=None, overwrite=False,
                  *, qc_override=None, expected_input_identity=None, doublet_override=None,
                  confirm_doublets=False, expected_doublet_digest=None):
+    execution_id = uuid.uuid4().hex
+    try:
+        return _run_analysis(config_path, input_path, out, metadata_path, annotations_path, overwrite,
+            qc_override=qc_override, expected_input_identity=expected_input_identity, doublet_override=doublet_override,
+            confirm_doublets=confirm_doublets, expected_doublet_digest=expected_doublet_digest, execution_id=execution_id)
+    except Exception as exc:
+        status_path = Path(out) / 'run_status.json'
+        try:
+            if status_path.is_file() and json.loads(status_path.read_text(encoding='utf-8')).get('execution_id') == execution_id:
+                _record_status(out, execution_id, 'failed', f'{type(exc).__name__}: {exc}')
+        except (OSError, ValueError):
+            pass  # Preserve the original diagnostic even when the output disk fails.
+        raise
+
+
+def _run_analysis(config_path, input_path, out, metadata_path=None, annotations_path=None, overwrite=False,
+                 *, qc_override=None, expected_input_identity=None, doublet_override=None,
+                 confirm_doublets=False, expected_doublet_digest=None, execution_id=None):
     start = time.perf_counter()
     config = load_config(config_path)
     identity = review_identity(input_path, config, metadata_path)
@@ -85,7 +116,7 @@ def run_analysis(config_path, input_path, out, metadata_path=None, annotations_p
         raise InputError('QC_STALE: input or configuration changed during checksum calculation; validate again')
     n_input = data.n_obs
     n_genes = data.n_vars
-    mt, warnings = calculate_qc(data)
+    mt, warnings = calculate_qc(data, config['mitochondrial_gene_ids'])
     metrics = data.obs[["sample_id", "stage", "total_counts", "n_genes_by_counts", "pct_counts_mt"]].copy()
     mask, qc_summary, filter_reasons = preview_qc_metrics(data.obs, config["qc"])
     doublet_summary = {'settings': config['doublets'], 'status': 'disabled'}
@@ -149,6 +180,7 @@ def run_analysis(config_path, input_path, out, metadata_path=None, annotations_p
         # The absolute target was resolved and checked against the workspace above.
         shutil.rmtree(out)
     out.mkdir(parents=True)
+    _record_status(out, execution_id, 'writing', 'Analysis computed; writing and validating output artifacts')
     metrics.to_csv(out / "qc_metrics.csv", index_label="cell_id")
     if doublet_audit is not None:
         doublet_audit.to_csv(out / 'doublet_scores.csv')
@@ -176,7 +208,7 @@ def run_analysis(config_path, input_path, out, metadata_path=None, annotations_p
                 "parameters": config, "seed": config["seed"], "versions": {"python": platform.python_version(), **versions},
                 "warnings": warnings, "ai": ai_status(), "elapsed_seconds": round(time.perf_counter() - start, 2),
                 "peak_working_set_bytes": peak_memory,
-                "files": ["report.html", "run_manifest.json", "qc_metrics.csv", "qc_preview.csv", "qc_filter_reasons.csv", "markers.csv", "annotations.csv", "cluster_composition.csv", "processed.h5ad", "config.yaml", "figures/qc.png", "figures/umap.png"]}
+                "files": ["report.html", "run_manifest.json", "run_status.json", "run.log", "qc_metrics.csv", "qc_preview.csv", "qc_filter_reasons.csv", "markers.csv", "annotations.csv", "cluster_composition.csv", "processed.h5ad", "config.yaml", "figures/qc.png", "figures/umap.png"]}
     manifest['marker_plots'] = marker_plots
     manifest['doublets'] = doublet_summary
     if doublet_audit is not None:
@@ -184,7 +216,15 @@ def run_analysis(config_path, input_path, out, metadata_path=None, annotations_p
     manifest['files'].extend(marker_plots['files'])
     write_report(out, manifest, qc_summary, markers, annotations)
     # Keep relative image and download links usable after downloading the report.
-    with zipfile.ZipFile(out / 'report_bundle.zip', 'w', compression=zipfile.ZIP_DEFLATED) as bundle:
+    completed = {'execution_id': execution_id, 'status': 'completed', 'timestamp_utc': datetime.now(timezone.utc).isoformat(),
+                 'message': 'Analysis, report and offline bundle completed'}
+    temporary_bundle = out / 'report_bundle.zip.tmp'
+    with zipfile.ZipFile(temporary_bundle, 'w', compression=zipfile.ZIP_DEFLATED) as bundle:
         for name in manifest['files']:
-            bundle.write(out / name, arcname=name)
+            if name not in ('run_status.json', 'run.log'):
+                bundle.write(out / name, arcname=name)
+        bundle.writestr('run_status.json', json.dumps(completed, indent=2))
+        bundle.writestr('run.log', (out / 'run.log').read_text(encoding='utf-8') + json.dumps(completed) + '\n')
+    temporary_bundle.replace(out / 'report_bundle.zip')
+    _record_status(out, execution_id, 'completed', completed['message'], record=completed)
     return {"output": str(out.resolve()), "cells": data.n_obs, "genes": data.n_vars, "clusters": len(clusters), "elapsed_seconds": manifest["elapsed_seconds"]}

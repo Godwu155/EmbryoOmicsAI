@@ -8,10 +8,12 @@ from .config import InputError
 from .pipeline import inspect_input, inspect_doublets, run_analysis
 from pathlib import Path
 import pandas as pd
+import importlib.metadata
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="embryoomics")
+    parser.add_argument('--version', action='version', version=importlib.metadata.version('embryoomics-ai'))
     sub = parser.add_subparsers(dest="command", required=True)
     for name in ("validate", "run", "preview-doublets"):
         cmd = sub.add_parser(name)

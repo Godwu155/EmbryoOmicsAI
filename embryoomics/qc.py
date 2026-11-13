@@ -6,18 +6,20 @@ import pandas as pd
 from .config import InputError
 
 
-def calculate_qc(data):
+def calculate_qc(data, mitochondrial_gene_ids=None):
     counts = data.layers["counts"].tocsr()
     data.obs["total_counts"] = np.asarray(counts.sum(axis=1)).ravel()
     data.obs["n_genes_by_counts"] = np.diff(counts.indptr)
-    symbols = data.var["gene_symbol"].fillna("").astype(str)
-    is_mt = symbols.str.match(r"^mt-", case=False).to_numpy()
+    symbols = data.var["gene_symbol"].astype('string').fillna("").astype(str)
+    is_mt = data.var_names.isin(mitochondrial_gene_ids) if mitochondrial_gene_ids is not None else symbols.str.match(r"^mt-", case=False).to_numpy()
+    if mitochondrial_gene_ids is not None and not set(mitochondrial_gene_ids).issubset(set(data.var_names)):
+        raise InputError('MT_GENE_IDS: configured mitochondrial gene IDs are missing from the input')
     warnings = []
     if is_mt.any():
         mt_counts = np.asarray(counts[:, is_mt].sum(axis=1)).ravel()
         totals = data.obs["total_counts"].to_numpy()
         data.obs["pct_counts_mt"] = np.divide(mt_counts * 100, totals, out=np.full(data.n_obs, np.nan), where=totals > 0)
-        method = "provided gene symbols, case-insensitive ^mt-"
+        method = 'configured mitochondrial gene IDs' if mitochondrial_gene_ids is not None else "provided gene symbols, case-insensitive ^mt-"
     else:
         data.obs["pct_counts_mt"] = np.nan
         method = "no matching gene symbols"

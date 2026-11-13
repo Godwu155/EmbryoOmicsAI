@@ -29,6 +29,10 @@ def validate_config(config):
     if config.get("count_matrix_layout") not in (None, "genes_by_cells_tsv"):
         raise InputError("CONFIG: count_matrix_layout must be genes_by_cells_tsv for a tabular count matrix")
     config.setdefault("data_license", "unknown")
+    mt_ids = config.setdefault('mitochondrial_gene_ids', None)
+    if mt_ids is not None and (not isinstance(mt_ids, list) or not mt_ids or
+            any(not isinstance(gene, str) or not gene.strip() for gene in mt_ids) or len(set(mt_ids)) != len(mt_ids)):
+        raise InputError('CONFIG: mitochondrial_gene_ids must be a nonempty list of unique gene IDs or null')
     if not isinstance(config["seed"], int) or isinstance(config["seed"], bool):
         raise InputError("CONFIG: seed must be an integer")
     if config["raw_count_source"] != "X" and not str(config["raw_count_source"]).startswith("layers/") and config["raw_count_source"] != "raw/X":

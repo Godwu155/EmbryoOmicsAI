@@ -95,6 +95,7 @@ def test_end_to_end_preserves_counts(sample, tmp_path, monkeypatch):
     assert all(len(entry["sha256"]) == 64 for entry in manifest["input_files"])
     assert manifest["seed"] == 42 and manifest["ai"]["enabled"] is False
     assert all((out / name).is_file() for name in manifest["files"])
+    assert json.loads((out / 'run_status.json').read_text())['status'] == 'completed'
     assert manifest['marker_plots']['status'] == 'generated'
     assert 'figures/marker_dotplot.png' in manifest['files']
     assert 'figures/marker_heatmap.png' in manifest['files']

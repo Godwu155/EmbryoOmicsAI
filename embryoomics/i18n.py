@@ -4,6 +4,8 @@ LANGUAGES = {"English": "en", "简体中文": "zh-CN"}
 
 TEXT = {
     "en": {
+        'run_incomplete': 'This run did not complete. Review run_status.json and run.log; use a new output directory to retry.',
+        'mt_configured': 'Explicitly configured mitochondrial gene IDs',
         'qc_doublets': 'Scrublet candidate doublets',
         'doublets_title': 'Optional Scrublet doublet review', 'doublets_mode': 'Doublet action',
         'doublets_off': 'Off', 'doublets_score': 'Score only (keep candidates)', 'doublets_filter': 'Filter after explicit confirmation',
@@ -75,6 +77,8 @@ TEXT = {
         "review_limit": "Cell type labels require human review. Cluster markers are exploratory and cells are not biological replicates. No lineage, causal, or cross-modality claim is made.",
     },
     "zh-CN": {
+        'run_incomplete': '本次运行未完成。请检查 run_status.json 与 run.log，并使用新输出目录重试。',
+        'mt_configured': '明确配置的线粒体基因 ID',
         'qc_doublets': 'Scrublet 候选双细胞',
         'doublets_title': '可选 Scrublet 双细胞审核', 'doublets_mode': '双细胞处理方式',
         'doublets_off': '关闭', 'doublets_score': '仅评分（保留候选）', 'doublets_filter': '明确确认后过滤',

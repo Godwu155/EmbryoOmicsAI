@@ -1,0 +1,3 @@
+sample_id,protein_id,id_namespace,abundance,unit,missing_reason
+synthetic_sample,synthetic_protein_1,synthetic,1000,raw_intensity,
+synthetic_sample,synthetic_protein_2,synthetic,,raw_intensity,not_detected
