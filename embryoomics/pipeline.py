@@ -18,7 +18,7 @@ from .config import InputError, load_config, validate_config
 from .evidence import load_annotations, marker_table
 from .io import checksums, load_counts, review_identity
 from .qc import calculate_qc, preview_qc_metrics
-from .reporting import save_figures, write_report
+from .reporting import save_figures, save_marker_figures, write_report
 
 
 def inspect_input(input_path, config_path, metadata_path=None, *, apply_config_filters=True):
@@ -114,6 +114,7 @@ def run_analysis(config_path, input_path, out, metadata_path=None, annotations_p
     (out / "config.yaml").write_text(yaml.safe_dump(config, sort_keys=False, allow_unicode=True), encoding="utf-8")
     data.write_h5ad(out / "processed.h5ad", compression="gzip")
     save_figures(data, out, metrics)
+    marker_plots = save_marker_figures(data, out, markers)
     versions = {name: metadata.version(name) for name in ("scanpy", "anndata", "numpy", "scipy", "pandas", "matplotlib", "python-igraph", "leidenalg", "streamlit", "psutil")}
     memory = psutil.Process().memory_info()
     peak_memory = getattr(memory, "peak_wset", None)
@@ -127,6 +128,8 @@ def run_analysis(config_path, input_path, out, metadata_path=None, annotations_p
                 "warnings": warnings, "ai": ai_status(), "elapsed_seconds": round(time.perf_counter() - start, 2),
                 "peak_working_set_bytes": peak_memory,
                 "files": ["report.html", "run_manifest.json", "qc_metrics.csv", "qc_preview.csv", "qc_filter_reasons.csv", "markers.csv", "annotations.csv", "cluster_composition.csv", "processed.h5ad", "config.yaml", "figures/qc.png", "figures/umap.png"]}
+    manifest['marker_plots'] = marker_plots
+    manifest['files'].extend(marker_plots['files'])
     write_report(out, manifest, qc_summary, markers, annotations)
     # Keep relative image and download links usable after downloading the report.
     with zipfile.ZipFile(out / 'report_bundle.zip', 'w', compression=zipfile.ZIP_DEFLATED) as bundle:

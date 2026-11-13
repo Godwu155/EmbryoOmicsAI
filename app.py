@@ -192,6 +192,12 @@ with pages[2]:
             st.warning(f"{t(language, 'result_view_error')}: {exc}")
             if (result_dir / 'figures' / 'umap.png').is_file():
                 st.image(str(result_dir / 'figures' / 'umap.png'))
+        for name in ('marker_dotplot', 'marker_heatmap'):
+            figure = result_dir / 'figures' / f'{name}.png'
+            if figure.is_file():
+                with st.expander(t(language, name)):
+                    st.image(str(figure))
+                    st.caption(t(language, 'marker_plots_help'))
         markers = pd.read_csv(result_dir / "markers.csv", dtype={'cluster_id': str})
         if selected_cluster != '__all__':
             markers = markers.loc[markers.cluster_id == selected_cluster]

@@ -95,6 +95,11 @@ def test_end_to_end_preserves_counts(sample, tmp_path, monkeypatch):
     assert all(len(entry["sha256"]) == 64 for entry in manifest["input_files"])
     assert manifest["seed"] == 42 and manifest["ai"]["enabled"] is False
     assert all((out / name).is_file() for name in manifest["files"])
+    assert manifest['marker_plots']['status'] == 'generated'
+    assert 'figures/marker_dotplot.png' in manifest['files']
+    assert 'figures/marker_heatmap.png' in manifest['files']
+    panel = pd.read_csv(out / 'marker_plot_genes.csv')
+    assert panel.gene_id.is_unique and len(panel) <= 30
     with zipfile.ZipFile(out / 'report_bundle.zip') as bundle:
         assert set(bundle.namelist()) == set(manifest['files'])
         assert bundle.testzip() is None
@@ -103,6 +108,7 @@ def test_end_to_end_preserves_counts(sample, tmp_path, monkeypatch):
     assert "Language / 语言" in report and "setReportLanguage" in report
     assert "UMAP shows similarity" in report and "UMAP 显示本次分析中的相似性" in report
     assert "gene_id" in pd.read_csv(out / "markers.csv").columns
+    assert "figures/marker_dotplot.png" in report and "Marker 平均表达热图" in report
     assert set(pd.read_csv(out / "annotations.csv").candidate_cell_type) == {"unknown"}
     processed = ad.read_h5ad(out / "processed.h5ad")
     assert sparse.issparse(processed.layers["counts"])

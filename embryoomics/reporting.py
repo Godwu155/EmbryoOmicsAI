@@ -9,8 +9,45 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import scanpy as sc
 
 from .i18n import columns_for, t, warning_for
+
+
+def save_marker_figures(data, out, markers):
+    """Bound plotting to a small ranked gene panel; preserve the full sparse matrix."""
+    figures = Path(out) / 'figures'
+    figures.mkdir(exist_ok=True)
+    # marker_table preserves Scanpy rank order within each cluster.
+    candidates = markers.loc[markers.logfoldchange > 0] if not markers.empty else markers
+    panel = candidates.groupby('cluster_id', sort=False).head(3).drop_duplicates('gene_id').head(30)
+    panel = panel.loc[panel.gene_id.isin(data.var_names)].copy()
+    files = ['marker_plot_genes.csv']
+    panel.to_csv(Path(out) / files[0], index=False)
+    details = {'backend': 'scanpy.pl.dotplot / scanpy.pl.matrixplot',
+               'selection': 'First 3 positive-logfoldchange markers per cluster in markers.csv rank order; unique gene IDs; at most 30 genes',
+               'gene_ids': panel.gene_id.tolist(), 'expression': 'X: log1p normalized expression; use_raw=False; no scaling',
+               'detection': 'Fraction of cells with X > 0', 'files': files}
+    if panel.empty:
+        details['status'] = 'skipped_no_positive_markers'
+        return details
+    # Slice before Scanpy may densify; never materialize the full expression matrix.
+    view = data[:, panel.gene_id.tolist()].copy()
+    view.obs['cluster'] = pd.Categorical(view.obs['cluster'].astype(str))
+    labels = {row.gene_id: f'{row.gene_symbol} ({row.gene_id})' for row in panel.itertuples()}
+    view.var_names = [labels[gene] for gene in view.var_names]
+    for name, plotter in [('marker_dotplot', sc.pl.dotplot), ('marker_heatmap', sc.pl.matrixplot)]:
+        plot = plotter(view, var_names=view.var_names.tolist(), groupby='cluster', use_raw=False,
+                       dendrogram=False, return_fig=True, show=False,
+                       figsize=(max(7, len(panel) * 0.55), max(4, view.obs['cluster'].nunique() * 0.4 + 2)))
+        try:
+            plot.savefig(figures / f'{name}.png', dpi=140, bbox_inches='tight')
+        finally:
+            if plot.fig is not None:
+                plt.close(plot.fig)
+        files.append(f'figures/{name}.png')
+    details['status'] = 'generated'
+    return details
 
 
 def save_figures(data, out, input_qc_metrics):
@@ -79,6 +116,11 @@ def write_report(out, manifest, qc_summary, markers, annotations):
             qc_text += f"<p>{tr('qc_reasons_help')}</p>"
         result_text = (f"<p>{tr('umap_limit')}</p><figure><img src='figures/umap.png' alt='{tr('umap_figure')}'><figcaption>{tr('umap_figure')} {tr('umap_axes')}</figcaption></figure>"
                        + table(markers.head(100), language))
+        for name in ('marker_dotplot', 'marker_heatmap'):
+            if f'figures/{name}.png' in manifest['files']:
+                result_text += f"<figure><img src='figures/{name}.png' alt='{tr(name)}'><figcaption>{tr(name)}</figcaption></figure>"
+        if manifest.get('marker_plots', {}).get('status') == 'generated':
+            result_text += f"<p>{tr('marker_plots_help')}</p>"
         review_text = f"<p>{tr('review_limit')}</p>" + table(annotations, language)
         sections = [("data", tr("data"), data_text), ("qc", tr("qc"), qc_text),
                     ("results", tr("report_results"), result_text), ("review", tr("report_review"), review_text)]

@@ -49,6 +49,10 @@ For a `.h5ad`, set `raw_count_source` to `X`, `raw/X`, or `layers/<name>` in the
 
 ## Output and review
 
+New runs reuse the pinned Scanpy `dotplot` and `matrixplot` APIs to produce marker dot plots and cluster-mean expression heatmaps. The Results page displays these all-cluster overview plots in expandable panels; the bilingual HTML and offline ZIP include them too. The panel takes the first three positive-logfoldchange markers per cluster in `markers.csv` rank order, deduplicates gene IDs and caps the panel at 30 genes. `marker_plot_genes.csv` and the manifest record the panel and method. Colors show mean log1p normalized expression without scaling; dot size shows the fraction of cells with expression above zero. Labels retain gene IDs, including duplicate symbols. Empty positive-marker panels are recorded and skipped. Older runs remain readable and need a new analysis run to obtain these plots.
+
+Open-source reuse decisions and follow-up tasks: [reuse plan](docs/OPEN_SOURCE_REUSE.md).
+
 `results/<run>/` contains `report.html` (Data, QC, Results, Review), `run_manifest.json`, `config.yaml`, `qc_metrics.csv`, `qc_preview.csv`, `markers.csv`, `cluster_composition.csv`, `annotations.csv`, `processed.h5ad`, and `figures/`. The manifest includes input file SHA256 hashes, dimensions, thresholds, retained cells, seed, versions, runtime, peak working set on Windows, warnings, and file list. `processed.h5ad` retains sparse raw integer counts in `layers['counts']`; `X` is normalized/log transformed. Marker tests are exploratory cluster-vs-rest Wilcoxon comparisons on log normalized values, with expression fractions derived from raw counts. The report links to its machine readable artifacts.
 
 New runs also produce `report_bundle.zip` containing the report and every linked artifact. Download and extract the ZIP before opening `report.html` to preserve the offline images and file links. In the interface, changes to input files or the source analysis configuration invalidate the earlier QC preview and its confirmation; validate again before running.

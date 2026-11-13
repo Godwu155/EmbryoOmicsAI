@@ -4,6 +4,9 @@ LANGUAGES = {"English": "en", "简体中文": "zh-CN"}
 
 TEXT = {
     "en": {
+        "marker_dotplot": "Marker expression dot plot (all clusters)",
+        "marker_heatmap": "Marker mean expression heatmap (all clusters)",
+        "marker_plots_help": "Scanpy plots use log1p normalized expression without scaling. Dot size is the fraction of cells with expression above zero; color shows mean expression across all cells in each cluster. Up to 3 positive markers per cluster and 30 unique gene IDs are selected in marker-table rank order. Labels retain gene IDs. These are exploratory markers, not confirmed cell types.",
         "subtitle": "Local mouse embryo scRNA-seq review. Cell types need human confirmation; UMAP is not a trajectory.",
         "data": "Data", "qc": "QC", "results": "Results", "report": "Report",
         "input_path": "10x folder or .h5ad path", "config_path": "Config YAML path",
@@ -61,6 +64,9 @@ TEXT = {
         "review_limit": "Cell type labels require human review. Cluster markers are exploratory and cells are not biological replicates. No lineage, causal, or cross-modality claim is made.",
     },
     "zh-CN": {
+        "marker_dotplot": "Marker 表达点图（全部聚类）",
+        "marker_heatmap": "Marker 平均表达热图（全部聚类）",
+        "marker_plots_help": "调用 Scanpy 绘制，使用未经缩放的 log1p 归一化表达。点大小为表达大于零的细胞比例，颜色为聚类内全部细胞的平均表达。按 marker 表原有排名，每群最多取 3 个正向 marker，总计最多 30 个不同基因 ID；标签保留 ID。这些是探索性 marker，不代表已确认的细胞类型。",
         "subtitle": "本地小鼠胚胎单细胞 RNA 分析。细胞类型需人工确认；UMAP 不代表发育轨迹。",
         "data": "数据", "qc": "质控", "results": "结果", "report": "报告",
         "input_path": "10x 文件夹或 .h5ad 路径", "config_path": "配置 YAML 路径",
